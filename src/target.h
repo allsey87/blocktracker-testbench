@@ -9,7 +9,9 @@
 struct STarget {     
    std::list<SBlock> Observations;
    unsigned int FramesSinceLastObservation = 0;
-   std::string Id;
+
+   /* -1 represents no assigned identifier */
+   unsigned int Id = -1;
 };
 
 #endif

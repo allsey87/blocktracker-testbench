@@ -37,6 +37,8 @@ private:
       float AssociationDist;
    };
 
+   void AssignIdentifiers(std::list<STarget>& lst_targets);
+
    float CalculateMinimumDistanceToFrame(const std::pair<float, float>& c_coordinates);
 
    unsigned int m_unFrameWidth;

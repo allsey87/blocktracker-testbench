@@ -78,11 +78,15 @@ int main(int n_arg_count, char* ppch_args[]) {
          m_pcBlockTracker->AssociateAndTrackTargets(lstDetectedBlocks, lstTrackedTargets);
 
          for(const STarget& s_target : lstTrackedTargets) {
+            ostringstream cText;
+            cText << '[' << s_target.Id << ']';
+            
+         
             CFrameAnnotator::Annotate(sCurrentFrame.U,
                                       s_target,
                                       m_pcBlockSensor->GetCameraMatrix(),
                                       m_pcBlockSensor->GetDistortionParameters(),
-                                      std::string("[") + s_target.Id + std::string("]"));
+                                      cText.str());
          }
          
          cv::imshow("Block Detector Output", sCurrentFrame.U);

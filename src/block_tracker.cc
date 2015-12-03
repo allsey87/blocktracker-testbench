@@ -127,11 +127,31 @@ void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated
          lst_targets.splice(std::begin(lst_targets), s_association.ExistingTarget);
       }
    }
-   /* check all targets have a unique Id */
+   AssignIdentifiers(lst_targets);
+}
+
+void CBlockTracker::AssignIdentifiers(std::list<STarget>& lst_targets) {
+   /* create a list of the used target indentifiers */
+   std::list<unsigned int> lstUsedIds;
+   unsigned int unNextId = 0;
+   /* populate that list */
    for(STarget& s_target : lst_targets) {
-      s_target.Id = "A";
+      if(s_target.Id != -1) {
+         lstUsedIds.push_back(s_target.Id);
+      }
+   }
+   /* assign identifiers */
+   for(STarget& s_target : lst_targets) {
+      if(s_target.Id == -1) {
+         while(std::find(std::begin(lstUsedIds), std::end(lstUsedIds), unNextId) != std::end(lstUsedIds)) {
+            unNextId++;
+         }
+         s_target.Id = unNextId;
+         lstUsedIds.push_back(unNextId);
+      }
    }
 }
+
 
 float CBlockTracker::CalculateMinimumDistanceToFrame(const std::pair<float, float>& c_coordinates) {
    /* init fMinDistToFrame as float max */
