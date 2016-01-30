@@ -13,7 +13,8 @@ public:
 
    CBlockSensor();
 
-   void DetectBlocks(const cv::Mat& c_grayscale_frame, std::list<SBlock>& lst_blocks);
+   void DetectBlocks(const cv::Mat& c_grayscale_frame,
+                     std::list<SBlock>& lst_blocks);
 
    const cv::Matx33f& GetCameraMatrix() {
       return m_cCameraMatrix;
@@ -24,6 +25,17 @@ public:
    }
 
 private:
+
+   void ToStandardRepresentation(const cv::Matx31f& c_rotation_vector,
+                                 const cv::Matx31f& c_translation_vector,
+                                 float& f_x, float& f_y, float& f_z,
+                                 float& f_yaw, float& f_pitch, float& f_roll);
+
+   typedef std::list<SBlock> TCluster;
+   typedef std::list<TCluster> TClusterList;
+
+   void ClusterDetections(std::list<SBlock>& lst_detections,
+                          std::list<SBlock>& lst_blocks);
 
    /* Initialise select the AprilTag tag family and init the detector */
    AprilTags::TagCodes m_cTagCodes = AprilTags::TagCodes(AprilTags::tagCodes36h11);

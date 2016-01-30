@@ -16,18 +16,20 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const cv::Matx33f& c_camera_matrix,
                                const cv::Vec4f& c_distortion_parameters,
                                const std::string& s_text) {
+
    /* project points is checking correctness */
-   std::vector<cv::Point3f> vecInputTargetPoints;
+   std::vector<cv::Point3f> vecInputTargetPoints = {
+      cv::Point3f( 0.0275,  0.0275, 0.0275),
+      cv::Point3f( 0.0275, -0.0275, 0.0275),
+      cv::Point3f(-0.0275, -0.0275, 0.0275),
+      cv::Point3f(-0.0275,  0.0275, 0.0275),
+      cv::Point3f( 0.0275,  0.0275, -0.0275),
+      cv::Point3f( 0.0275, -0.0275, -0.0275),
+      cv::Point3f(-0.0275, -0.0275, -0.0275),
+      cv::Point3f(-0.0275,  0.0275, -0.0275)
+   };
+   
    std::vector<cv::Point2f> vecOutputImagePoints;
-      
-   vecInputTargetPoints.push_back(cv::Point3f( 0.0275,  0.0275, 0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f( 0.0275, -0.0275, 0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f(-0.0275, -0.0275, 0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f(-0.0275,  0.0275, 0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f( 0.0275,  0.0275, -0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f( 0.0275, -0.0275, -0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f(-0.0275, -0.0275, -0.0275));
-   vecInputTargetPoints.push_back(cv::Point3f(-0.0275,  0.0275, -0.0275));
 
    cv::projectPoints(vecInputTargetPoints,
                      s_block.RotationMatrix,
