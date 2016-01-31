@@ -6,9 +6,9 @@
 struct STag {
    std::vector<std::pair<float, float>> Corners;
    std::pair<float, float> Center;
-   cv::Mat RotationMatrix;
-   cv::Mat TranslationMatrix;
-   enum ELEDState {
+   cv::Mat RotationVector;
+   cv::Mat TranslationVector;
+   enum class ELEDState {
       OFF, Q1, Q2, Q3, Q4,
    } LEDState;
 };

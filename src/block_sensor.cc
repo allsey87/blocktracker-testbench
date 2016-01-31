@@ -3,6 +3,10 @@
 
 #include "tag.h"
 #include "block.h"
+#include <argos3/core/utility/math/matrix/rotationmatrix3.h>
+#include <argos3/core/utility/math/quaternion.h>
+#include <argos3/core/utility/math/angles.h>
+#include <argos3/core/utility/math/vector3.h>
 
 /****************************************/
 /****************************************/
@@ -26,6 +30,9 @@ CBlockSensor::CBlockSensor() {}
 
 void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
                                 std::list<SBlock>& lst_blocks) {
+                                
+   
+                                
    /* Create a list for the detections */
    std::list<SBlock> lst_detections;
    /* extract tags from frame */
@@ -33,8 +40,8 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
       m_cTagDetector.extractTags(c_grayscale_frame);
 
    for(const AprilTags::TagDetection& c_detection : vecDetections) {
-      /* Create a block for the detection */
-      SBlock sBlock;
+      /* create a new block for this detection */
+      SBlock sBlock;                                
       /* Add an empty tag to the block and get a reference to it */
       sBlock.Tags.emplace_back();
       STag& sTag = sBlock.Tags.back();
@@ -54,127 +61,106 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
                    vecImagePts,
                    m_cCameraMatrix,
                    m_cDistortionParameters,
-                   sTag.RotationMatrix,
-                   sTag.TranslationMatrix);
+                   sTag.RotationVector,
+                   sTag.TranslationVector);
 
       /* Compose the tag-to-block and camera-to-tag transformations to get
          the camera-to-block transformation, storing the result directly 
          inside sBlock */
       cv::composeRT(m_cTagToBlockRotation,
                     m_cTagToBlockTranslation,
-                    sTag.RotationMatrix,
-                    sTag.TranslationMatrix,
-                    sBlock.RotationMatrix,
-                    sBlock.TranslationMatrix);
+                    sTag.RotationVector,
+                    sTag.TranslationVector,
+                    sBlock.RotationVector,
+                    sBlock.TranslationVector);
                     
       /////// DEBUG
       
-      const cv::Matx31f TestTranslation = cv::Matx31f(0, 0, 0);
-      const cv::Matx31f ReferenceRotation = cv::Matx31f(2.35619449, 0, 0);
-      
-      cv::Matx33f cBlockRotation33;
-      cv::Matx33f cReferenceRotation33;
-      cv::Matx33f OutputRotationVector33;
-      
-      //std::cerr << "Rotation Matrix (OV): " << std::endl << sBlock.RotationMatrix << std::endl;
-           
-      cv::Rodrigues(sBlock.RotationMatrix, cBlockRotation33);
-      cv::Rodrigues(ReferenceRotation, cReferenceRotation33);
-      
-      //std::cerr << "cReferenceRotation33: " << std::endl << cReferenceRotation33 << std::endl;
-      //std::cerr << "cBlockRotation33.inv(): " << std::endl << cBlockRotation33.inv() << std::endl;
-      
-      OutputRotationVector33 = cReferenceRotation33 * cBlockRotation33.inv();
-      
-      //cerr << "Rotation Matrix (0RV31):" << std::endl << OutputRotationVector33 << std::endl;
+      /* if there is at least one block already in the vector */
+      if(lst_detections.size() > 0) {
+         std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
+         
+         cv::Matx33f cThisRotationMatrixCV, cOtherRotationMatrixCV;
 
-      cv::Matx33f cF(1,  0,  0, 
-                     0, -1,  0,
-                     0,  0,  1);
-      cv::Matx33f cFR(cF, OutputRotationVector33, cv::Matx_MatMulOp());
-      float f_yaw = StandardRad(atan2(cFR(1,0), cFR(0,0)));
-      float f_pitch = StandardRad(atan2(-cFR(2,0), cFR(0,0) * cos(f_yaw) + cFR(1,0) * sin(f_yaw)));
-      float f_roll  = StandardRad(atan2( cFR(0,2) * sin(f_yaw) - cFR(1,2) * cos(f_yaw),
-                                        -cFR(0,1) * sin(f_yaw) + cFR(1,1) * cos(f_yaw)));
-                               
-      std::cerr << "OutputRotation (Yaw, Pitch, Roll) = (" 
-                << f_yaw <<   ", " 
-                << f_pitch << ", " 
-                << f_roll <<  ") "  
-                << std::endl;
-      
-      f_yaw = std::round(f_yaw / (0.5f * M_PI)) * (0.5f * M_PI);
-      f_pitch = std::round(f_pitch / (0.5f * M_PI)) * (0.5f * M_PI);
-      f_roll = std::round(f_roll / (0.5f * M_PI)) * (0.5f * M_PI);
-      
-      std::cerr << "OutputRotation.Rounded (Yaw, Pitch, Roll) = (" 
-                << f_yaw <<   ", " 
-                << f_pitch << ", " 
-                << f_roll <<  ") "
-                << std::endl;
+         cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
+         cv::Rodrigues(lst_detections.front().RotationVector, cOtherRotationMatrixCV);
+         
+         argos::CRotationMatrix3 cThisRotationMatrix;
+         argos::CRotationMatrix3 cOtherRotationMatrix;
+         
+         cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
+         cOtherRotationMatrix.Set(&cOtherRotationMatrixCV(0,0));
+         
+         argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
+         argos::CQuaternion cOtherRotationQuaternion = cOtherRotationMatrix.ToQuaternion();
+         
+         std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
+         std::cerr << "Other block rotation: " << cOtherRotationQuaternion << std::endl;
+         
+         argos::CQuaternion cTransfer(cOtherRotationQuaternion * cThisRotationQuaternion.Inverse());
+         
+         std::cerr << "Transfer rotation: " << cTransfer << std::endl;
 
-      float f_c_yaw = cos(f_yaw);
-      float f_s_yaw = sin(f_yaw);
-      float f_c_pitch = cos(f_pitch);
-      float f_s_pitch = sin(f_pitch);
-      float f_c_roll = cos(f_roll);
-      float f_s_roll = sin(f_roll);
-                      
-      cv::Matx33f Intermediate( f_c_yaw * f_c_pitch,
-                                f_c_yaw * f_s_pitch * f_s_roll - f_s_yaw * f_c_roll,
-                                f_c_yaw * f_s_pitch * f_c_roll + f_s_yaw * f_s_roll,
-                                f_s_yaw * f_c_pitch,
-                                f_s_yaw * f_s_pitch * f_s_roll + f_c_yaw * f_c_roll,
-                                f_s_yaw * f_s_pitch * f_c_roll - f_c_yaw * f_s_roll,
-                               -f_s_pitch,
-                                f_c_pitch * f_s_roll,
-                                f_c_pitch * f_c_roll);
-                                
-                               
-       std::cerr << "OutputRotation.Rounded (Matrix) = " 
-                << std::endl
-                << Intermediate
-                << std::endl;                        
-      
-      //cerr << "OutputRotationVector33" << std::endl << OutputRotationVector33 << std::endl;
+         argos::CRadians pcEulerAngles[3];
+         argos::CQuaternion cResult;
+         
+         cTransfer.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
 
-      //cerr << "R2 * cBlockRotation33" << std::endl << R2 * cBlockRotation33 << std::endl;
-      
-      cv::Rodrigues(Intermediate * cBlockRotation33, sBlock.RotationMatrix);
-      
-      
+         for(argos::CRadians& cEulerAngle : pcEulerAngles) {
+            cEulerAngle.SetValue(std::round(cEulerAngle.GetValue() / (0.25f * M_PI)) * (0.25f * M_PI));
+         }         
+         
+         cTransfer.FromEulerAngles(pcEulerAngles[0], argos::CRadians::ZERO, argos::CRadians::ZERO);
+         cResult = cTransfer * cThisRotationQuaternion;
+         
+         cTransfer.FromEulerAngles(argos::CRadians::ZERO, pcEulerAngles[1], argos::CRadians::ZERO);
+         cResult = cTransfer * cResult;
+
+         cTransfer.FromEulerAngles(argos::CRadians::ZERO, argos::CRadians::ZERO, pcEulerAngles[2]);
+         cResult = cTransfer * cResult;
+         
+         std::cerr << "Result rotation: " << cResult << std::endl;
+         
+         std::cerr << "-----------------------------" << std::endl;
+         
+      }
+
+     
       ////// ZE BUGS
                     
       
-      /* Extract the position and rotation of the block, relative to the camera */
-      ToStandardRepresentation(sBlock.RotationMatrix, 
-                               sBlock.TranslationMatrix,
+      /* Extract the position and rotation of the block, relative to the camera
+      ToStandardRepresentation(sBlock.RotationVector, 
+                               sBlock.TranslationVector,
                                sBlock.X,
                                sBlock.Y,
                                sBlock.Z,
                                sBlock.Yaw,
                                sBlock.Pitch,
-                               sBlock.Roll);
+                               sBlock.Roll); 
+      */
 
       /* compute the 2D coordinates of the block */
+      
+      /*
       std::vector<cv::Point3f> vecCentrePoint = {
          cv::Point3f(0,0,0)
       };
       std::vector<cv::Point2f> vecCentrePixel;
       cv::projectPoints(vecCentrePoint,
-                        sBlock.RotationMatrix,
-                        sBlock.TranslationMatrix,
+                        sBlock.RotationVector,
+                        sBlock.TranslationVector,
                         m_cCameraMatrix,
                         m_cDistortionParameters,
                         vecCentrePixel);
       sBlock.Coordinates = std::pair<float, float>(vecCentrePixel[0].x, vecCentrePixel[0].y);
+      */
 
       /* store the block into our block list */
       lst_detections.push_back(sBlock);
    }
    /* cluster the blocks */
    //ClusterDetections(lst_detections, lst_blocks);
-   
    lst_detections.swap(lst_blocks);
 }
 
@@ -293,10 +279,10 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
       unsigned int j = 0;
       for(SBlock& s_block : t_cluster) {
          std::cerr << "block " << j << std::endl
-                   << "Translation Matrix: " << std::endl
-                   << s_block.TranslationMatrix << std::endl
-                   << "Rotation Matrix: " << std::endl
-                   << s_block.RotationMatrix << std::endl
+                   << "Translation Vector: " << std::endl
+                   << s_block.TranslationVector << std::endl
+                   << "Rotation Vector: " << std::endl
+                   << s_block.RotationVector << std::endl
                    << "Yaw, Pitch, Roll: " << std::endl
                    << s_block.Yaw << ", " << s_block.Pitch << ", " << s_block.Roll << std::endl;
 

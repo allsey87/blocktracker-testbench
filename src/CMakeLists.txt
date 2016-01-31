@@ -13,12 +13,21 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 find_package(AprilTags REQUIRED)
 include_directories(${AprilTags_INCLUDE_DIR})
 
+include_directories("./")
+
 # Build the application
 add_executable(blocktracker
                block_demo.cc
                block_sensor.cc
                block_tracker.cc
-               frame_annotator.cc)
+               frame_annotator.cc
+               argos3/core/utility/math/vector3.cpp
+               argos3/core/utility/math/vector2.cpp
+               argos3/core/utility/math/angles.cpp
+               argos3/core/utility/math/matrix/rotationmatrix3.cpp
+               argos3/core/utility/math/matrix/rotationmatrix2.cpp
+               argos3/core/utility/math/matrix/transformationmatrix3.cpp
+               argos3/core/utility/math/matrix/transformationmatrix2.cpp)
 
 set_property(TARGET blocktracker PROPERTY CXX_STANDARD 11)
 

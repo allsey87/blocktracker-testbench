@@ -14,8 +14,8 @@ struct SBlock {
    std::vector<STag> Tags;
    /* Block 2D coordinates in frame */
    std::pair<float, float> Coordinates;
-   /* Rotation and translations matrices */
-   cv::Mat RotationMatrix, TranslationMatrix;
+   /* Rotation and translations vectors */
+   cv::Mat RotationVector, TranslationVector;
    /* Block 3D coordinates and orientation */
    float X, Y, Z, Yaw, Pitch, Roll;
    

@@ -51,8 +51,8 @@ int main(int n_arg_count, char* ppch_args[]) {
    m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, lstDetectedBlocks);
    
    for(SBlock& s_block : lstDetectedBlocks) {
-      std::cerr << "Rotation Matrix: " << std::endl
-                << s_block.RotationMatrix << std::endl;             
+      std::cerr << "Rotation Vector: " << std::endl
+                << s_block.RotationVector << std::endl;             
    }
    
    for(SBlock& s_block : lstDetectedBlocks) {
@@ -69,6 +69,6 @@ int main(int n_arg_count, char* ppch_args[]) {
    
    cv::imshow("Block Detector Output", sCurrentFrame.U);
 
-   //cv::waitKey(0);
+   cv::waitKey(0);
 }
 
