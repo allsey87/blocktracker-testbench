@@ -38,6 +38,9 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
    /* extract tags from frame */
    std::vector<AprilTags::TagDetection> vecDetections =
       m_cTagDetector.extractTags(c_grayscale_frame);
+      
+      
+   std::vector<argos::CQuaternion> vecResults; 
 
    for(const AprilTags::TagDetection& c_detection : vecDetections) {
       /* create a new block for this detection */
@@ -77,55 +80,51 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
       /////// DEBUG
       
       /* if there is at least one block already in the vector */
-      if(lst_detections.size() > 0) {
-         std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
-         
-         cv::Matx33f cThisRotationMatrixCV, cOtherRotationMatrixCV;
 
-         cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
-         cv::Rodrigues(lst_detections.front().RotationVector, cOtherRotationMatrixCV);
-         
-         argos::CRotationMatrix3 cThisRotationMatrix;
-         argos::CRotationMatrix3 cOtherRotationMatrix;
-         
-         cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
-         cOtherRotationMatrix.Set(&cOtherRotationMatrixCV(0,0));
-         
-         argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
-         argos::CQuaternion cOtherRotationQuaternion = cOtherRotationMatrix.ToQuaternion();
-         
-         std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
-         std::cerr << "Other block rotation: " << cOtherRotationQuaternion << std::endl;
-         
-         argos::CQuaternion cTransfer(cOtherRotationQuaternion * cThisRotationQuaternion.Inverse());
-         
-         std::cerr << "Transfer rotation: " << cTransfer << std::endl;
+      //std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
+      
+      cv::Matx33f cThisRotationMatrixCV, cReferenceRotationMatrixCV;
 
-         argos::CRadians pcEulerAngles[3];
-         argos::CQuaternion cResult;
-         
-         cTransfer.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
+      cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
+      //cv::Rodrigues(lst_detections.front().RotationVector, cReferenceRotationMatrixCV);
+      
+      argos::CRotationMatrix3 cThisRotationMatrix;
+      //argos::CRotationMatrix3 cReferenceRotationMatrix;
+      
+      cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
+      //cReferenceRotationMatrix.Set(&cReferenceRotationMatrixCV(0,0));
+      
+      argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
+      argos::CQuaternion cReferenceRotationQuaternion(argos::CRadians::ZERO, argos::CVector3::Z);
+      
+      //std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
+      //std::cerr << "Reference block rotation: " << cReferenceRotationQuaternion << std::endl;
+      
+      argos::CQuaternion cTransfer(cReferenceRotationQuaternion * cThisRotationQuaternion.Inverse());
+      
+      //std::cerr << "Transfer rotation: " << cTransfer << std::endl;
 
-         for(argos::CRadians& cEulerAngle : pcEulerAngles) {
-            cEulerAngle.SetValue(std::round(cEulerAngle.GetValue() / (0.25f * M_PI)) * (0.25f * M_PI));
-         }         
-         
-         cTransfer.FromEulerAngles(pcEulerAngles[0], argos::CRadians::ZERO, argos::CRadians::ZERO);
-         cResult = cTransfer * cThisRotationQuaternion;
-         
-         cTransfer.FromEulerAngles(argos::CRadians::ZERO, pcEulerAngles[1], argos::CRadians::ZERO);
-         cResult = cTransfer * cResult;
+      argos::CRadians pcEulerAngles[3];
+      argos::CQuaternion cResult;
+      
+      cTransfer.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
 
-         cTransfer.FromEulerAngles(argos::CRadians::ZERO, argos::CRadians::ZERO, pcEulerAngles[2]);
-         cResult = cTransfer * cResult;
-         
-         std::cerr << "Result rotation: " << cResult << std::endl;
-         
-         std::cerr << "-----------------------------" << std::endl;
-         
-      }
+      for(argos::CRadians& cEulerAngle : pcEulerAngles) {
+         cEulerAngle.SetValue(std::round(cEulerAngle.GetValue() / (0.5f * ARGOS_PI)) * (0.5f * ARGOS_PI));
+      }         
+      
+      cTransfer.FromEulerAngles(pcEulerAngles[0], argos::CRadians::ZERO, argos::CRadians::ZERO);
+      cResult = cTransfer * cThisRotationQuaternion;
+      
+      cTransfer.FromEulerAngles(argos::CRadians::ZERO, pcEulerAngles[1], argos::CRadians::ZERO);
+      cResult = cTransfer * cResult;
 
-     
+      cTransfer.FromEulerAngles(argos::CRadians::ZERO, argos::CRadians::ZERO, pcEulerAngles[2]);
+      cResult = cTransfer * cResult;
+      
+      //std::cerr << "Rotation[" << lst_detections.size() << "]: " << cResult << std::endl;
+      vecResults.push_back(cResult);
+            
       ////// ZE BUGS
                     
       
@@ -161,6 +160,27 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
    }
    /* cluster the blocks */
    //ClusterDetections(lst_detections, lst_blocks);
+   argos::CQuaternion cEndResult;
+   
+   if(vecResults.size() > 0 ) {
+      argos::CRadians pcEulerAngles[3];   
+      for(const argos::CQuaternion& c_result : vecResults) {
+         std::cerr << c_result << std::endl;
+         argos::CRadians pcEulerAnglesTemp[3];
+         c_result.ToEulerAngles(pcEulerAnglesTemp[0], pcEulerAnglesTemp[1], pcEulerAnglesTemp[2]);
+         pcEulerAngles[0] += pcEulerAnglesTemp[0];
+         pcEulerAngles[1] += pcEulerAnglesTemp[1];
+         pcEulerAngles[2] += pcEulerAnglesTemp[2];
+      }
+      cEndResult.FromEulerAngles(pcEulerAngles[0] / static_cast<float>(vecResults.size()),
+                                 pcEulerAngles[1] / static_cast<float>(vecResults.size()),
+                                 pcEulerAngles[2] / static_cast<float>(vecResults.size()));
+      std::cerr << "average:" << std::endl << cEndResult << std::endl << std::endl;
+   }
+
+   
+   
+   
    lst_detections.swap(lst_blocks);
 }
 

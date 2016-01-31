@@ -39,36 +39,40 @@ int main(int n_arg_count, char* ppch_args[]) {
      
    unsigned int unBlockId = 0;
  
-   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
+   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
+   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
 
-   unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
+   //unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
 
-   m_pcISSCaptureDevice->read(sCurrentFrame.U);
-   cv::cvtColor(sCurrentFrame.U, sCurrentFrame.Y, CV_BGR2GRAY);
-   
-   //cv::imshow("Input Frame", sCurrentFrame.U);
+   while(cv::waitKey(50) == -1) {
 
-   m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, lstDetectedBlocks);
-   
-   for(SBlock& s_block : lstDetectedBlocks) {
-      std::cerr << "Rotation Vector: " << std::endl
-                << s_block.RotationVector << std::endl;             
-   }
-   
-   for(SBlock& s_block : lstDetectedBlocks) {
-      std::cerr << "Yaw, Pitch, Roll: " << std::endl
-                << s_block.Yaw << ", " << s_block.Pitch << ", " << s_block.Roll << std::endl;
-   }
-   
-   unsigned int i = 0;
+      m_pcISSCaptureDevice->read(sCurrentFrame.U);
+      cv::cvtColor(sCurrentFrame.U, sCurrentFrame.Y, CV_BGR2GRAY);
       
-   for(SBlock& s_block : lstDetectedBlocks) {
-      CFrameAnnotator::Annotate(sCurrentFrame.U, s_block.Tags[0], std::to_string(i));
-      i++;
-   }
-   
-   cv::imshow("Block Detector Output", sCurrentFrame.U);
+      //cv::imshow("Input Frame", sCurrentFrame.U);
 
-   cv::waitKey(0);
+      m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, lstDetectedBlocks);
+      /*
+      for(SBlock& s_block : lstDetectedBlocks) {
+         std::cerr << "Rotation Vector: " << std::endl
+                   << s_block.RotationVector << std::endl;             
+      }
+      
+      for(SBlock& s_block : lstDetectedBlocks) {
+         std::cerr << "Yaw, Pitch, Roll: " << std::endl
+                   << s_block.Yaw << ", " << s_block.Pitch << ", " << s_block.Roll << std::endl;
+      }
+      */
+      unsigned int i = 0;
+         
+      for(SBlock& s_block : lstDetectedBlocks) {
+         CFrameAnnotator::Annotate(sCurrentFrame.U, s_block.Tags[0], std::to_string(i));
+         i++;
+      }
+      
+      cv::imshow("Block Detector Output", sCurrentFrame.U);
+   }
+
+   
 }
 
