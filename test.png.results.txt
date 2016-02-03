@@ -1,0 +1,52 @@
+At d3692ad834c1f417359d83a2e2f1c9119f81a64e:
+
+Using test.png:
+
+CASE 1:
+argos::CQuaternion cTransfer(cReferenceRotationQuaternion * cThisRotationQuaternion.Inverse());
+-----------------------------------------
+         Z           Y           X
+-----------------------------------------
+TAG 0:   -3.6672,    -40.408,    -13.456
+TAG 1:   -10.9297,   -4.04192,   44.048
+-----------------------------------------
+From observation Z0 matches Y1, Y0 matches -X1, and X0 matches Z1.
+
+/*************************************/
+
+CASE 2:
+argos::CQuaternion cTransfer(cThisRotationQuaternion * cReferenceRotationQuaternion.Inverse());
+-----------------------------------------
+         Z           Y           X
+-----------------------------------------
+TAG 0:   -3.68948,   -40.382,    -13.596
+TAG 1:   -104.788,   -43.9075,   -95.6143
+-----------------------------------------
+Garbage?
+
+/*************************************/
+
+CASE 3:
+argos::CQuaternion cTransfer(cThisRotationQuaternion.Inverse() * cReferenceRotationQuaternion);
+-----------------------------------------
+         Z           Y           X
+-----------------------------------------
+TAG 0:   -3.68948,   -40.382,    -13.596
+TAG 1:   -10.8883,   -4.04179,   44.0452
+-----------------------------------------
+Note: this matches the CASE 1, probably because cReferenceRotationQuaternion is a unit quaternion.
+
+/*************************************/
+
+CASE 4:
+argos::CQuaternion cTransfer(cReferenceRotationQuaternion.Inverse() * cThisRotationQuaternion);
+-----------------------------------------
+         Z           Y           X
+-----------------------------------------
+TAG 0:   -3.68948,   -40.382,    -13.596
+TAG 1:   -104.788,   -43.9075,   -95.6143
+-----------------------------------------
+Note: this also matches CASE 2. Garbage?
+
+
+

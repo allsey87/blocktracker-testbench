@@ -28,7 +28,9 @@ CBlockSensor::CBlockSensor() {}
 /****************************************/
 /****************************************/
 
-void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
+void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
+                                cv::Mat& c_u_frame,
+                                cv::Mat& c_v_frame,
                                 std::list<SBlock>& lst_blocks) {
                                 
    
@@ -37,7 +39,7 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
    std::list<SBlock> lst_detections;
    /* extract tags from frame */
    std::vector<AprilTags::TagDetection> vecDetections =
-      m_cTagDetector.extractTags(c_grayscale_frame);
+      m_cTagDetector.extractTags(c_y_frame);
       
       
    std::vector<argos::CQuaternion> vecResults; 
@@ -66,6 +68,109 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
                    m_cDistortionParameters,
                    sTag.RotationVector,
                    sTag.TranslationVector);
+                   
+      /* Debug - draw axes on each tag */
+      std::vector<cv::Point3f> vecAxesPoints = {
+         cv::Point3f(0, 0, 0),
+         cv::Point3f(m_fTagSize, 0, 0),
+         cv::Point3f(0, m_fTagSize, 0),
+         cv::Point3f(0, 0, m_fTagSize),
+      };
+
+      std::vector<cv::Point2f> vecLedAxesPixels;
+      cv::projectPoints(vecAxesPoints,
+                        sTag.RotationVector,
+                        sTag.TranslationVector,
+                        m_cCameraMatrix,
+                        m_cDistortionParameters,
+                        vecLedAxesPixels);
+                              
+      cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[1], cv::Scalar(0,0,255), 2);
+      cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[2], cv::Scalar(0,255,0), 2);
+      cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[3], cv::Scalar(255,0,0), 2);
+
+      /* Detect the LEDs */
+      std::vector<cv::Point3f> vecLedPoints = {
+         cv::Point3f(-m_fInterLedLength * 0.5f, 0, 0),
+         cv::Point3f( m_fInterLedLength * 0.5f, 0, 0),
+         cv::Point3f( 0, -m_fInterLedLength * 0.5f, 0),
+         cv::Point3f( 0,  m_fInterLedLength * 0.5f, 0)
+      };
+      std::vector<cv::Point2f> vecLedCentrePixels;
+      cv::projectPoints(vecLedPoints,
+                        sTag.RotationVector,
+                        sTag.TranslationVector,
+                        m_cCameraMatrix,
+                        m_cDistortionParameters,
+                        vecLedCentrePixels);
+                       
+      for(cv::Point2f& c_led_point : vecLedCentrePixels) {
+         /* skip this LED if the coordinates are out of range */
+         if(c_led_point.x < (m_unLedRegionOfInterestLength / 2u) ||
+            c_led_point.x > (c_u_frame.cols - 1) - (m_unLedRegionOfInterestLength / 2u)) {
+            continue;   
+         }
+
+         if(c_led_point.y < (m_unLedRegionOfInterestLength / 2u) ||
+            c_led_point.y > (c_u_frame.rows - 1) - (m_unLedRegionOfInterestLength / 2u)) {
+            continue;   
+         }
+         
+         cv::Rect cLedRectangle(c_led_point.x - (m_unLedRegionOfInterestLength / 2u),
+                                c_led_point.y - (m_unLedRegionOfInterestLength / 2u),
+                                m_unLedRegionOfInterestLength,
+                                m_unLedRegionOfInterestLength);
+         
+         // DEBUG
+         cv::rectangle(c_u_frame, cLedRectangle, cv::Scalar(0, 0, 0));
+         // DEBUG
+
+         struct {
+            cv::Mat Y, U, V;
+         } sRegionOfInterest = {
+            c_u_frame(cLedRectangle),
+            c_u_frame(cLedRectangle),
+            c_u_frame(cLedRectangle),
+         };
+         
+         float fSumY = 0.0f, fWeightedAverageU = 0.0f, fWeightedAverageV = 0.0f;
+         
+         for(unsigned int un_row = 0; un_row < sRegionOfInterest.Y.rows; un_row++) {
+            for(unsigned int un_col = 0; un_col < sRegionOfInterest.Y.cols; un_col++) {
+               float fPixelY = sRegionOfInterest.Y.at<float>(un_row, un_col);
+               fSumY += fPixelY;
+               fWeightedAverageU += fPixelY * sRegionOfInterest.U.at<float>(un_row, un_col);
+               fWeightedAverageV += fPixelY * sRegionOfInterest.V.at<float>(un_row, un_col);
+            }
+         }
+         
+         fWeightedAverageU /= fSumY;
+         fWeightedAverageV /= fSumY;
+         
+         if(fSumY / (m_unLedRegionOfInterestLength * m_unLedRegionOfInterestLength) > 
+            m_unLedLuminanceOnThreshold) {
+            if(fWeightedAverageU > 128.0f) {
+               if(fWeightedAverageV > 128.0f) {
+                  sTag.LedStates.push_back(ELedState::Q1);
+               }
+               else {
+                  sTag.LedStates.push_back(ELedState::Q4);
+               }
+            }
+            else {
+               if(fWeightedAverageV > 128.0f) {
+                  sTag.LedStates.push_back(ELedState::Q2);
+               }
+               else {
+                  sTag.LedStates.push_back(ELedState::Q3);
+               }
+            }
+         }
+         else {
+            sTag.LedStates.push_back(ELedState::OFF);
+         }
+      }
+
 
       /* Compose the tag-to-block and camera-to-tag transformations to get
          the camera-to-block transformation, storing the result directly 
@@ -80,81 +185,169 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
       /////// DEBUG
       
       /* if there is at least one block already in the vector */
+      
+      if(lst_detections.size() > 0) {
 
-      //std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
-      
-      cv::Matx33f cThisRotationMatrixCV, cReferenceRotationMatrixCV;
+         //std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
+         
+         cv::Matx33f cThisRotationMatrixCV, cReferenceRotationMatrixCV;
 
-      cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
-      //cv::Rodrigues(lst_detections.front().RotationVector, cReferenceRotationMatrixCV);
-      
-      argos::CRotationMatrix3 cThisRotationMatrix;
-      //argos::CRotationMatrix3 cReferenceRotationMatrix;
-      
-      cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
-      //cReferenceRotationMatrix.Set(&cReferenceRotationMatrixCV(0,0));
-      
-      argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
-      argos::CQuaternion cReferenceRotationQuaternion(argos::CRadians::ZERO, argos::CVector3::Z);
-      
-      //std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
-      //std::cerr << "Reference block rotation: " << cReferenceRotationQuaternion << std::endl;
-      
-      argos::CQuaternion cTransfer(cReferenceRotationQuaternion * cThisRotationQuaternion.Inverse());
-      
-      //std::cerr << "Transfer rotation: " << cTransfer << std::endl;
+         cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
+         cv::Rodrigues(lst_detections.front().RotationVector, cReferenceRotationMatrixCV);
+         
+         argos::CRotationMatrix3 cThisRotationMatrix;
+         argos::CRotationMatrix3 cReferenceRotationMatrix;
+         
+         cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
+         cReferenceRotationMatrix.Set(&cReferenceRotationMatrixCV(0,0));
+         
+         argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
+         argos::CQuaternion cReferenceRotationQuaternion = cReferenceRotationMatrix.ToQuaternion();
+         //argos::CQuaternion cReferenceRotationQuaternion(argos::CRadians::ZERO, argos::CVector3::Z);
+         
+         //std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
+         //std::cerr << "Reference block rotation: " << cReferenceRotationQuaternion << std::endl;
+         
+         argos::CQuaternion cTransfer(cReferenceRotationQuaternion * cThisRotationQuaternion.Inverse());
+         
+         //std::cerr << "Transfer rotation: " << cTransfer << std::endl;
 
-      argos::CRadians pcEulerAngles[3];
-      argos::CQuaternion cResult;
-      
-      cTransfer.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
+         argos::CRadians pcEulerAngles[3];
+         argos::CQuaternion cResult;
+         
+         cTransfer.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
 
-      for(argos::CRadians& cEulerAngle : pcEulerAngles) {
-         cEulerAngle.SetValue(std::round(cEulerAngle.GetValue() / (0.5f * ARGOS_PI)) * (0.5f * ARGOS_PI));
-      }         
-      
-      cTransfer.FromEulerAngles(pcEulerAngles[0], argos::CRadians::ZERO, argos::CRadians::ZERO);
-      cResult = cTransfer * cThisRotationQuaternion;
-      
-      cTransfer.FromEulerAngles(argos::CRadians::ZERO, pcEulerAngles[1], argos::CRadians::ZERO);
-      cResult = cTransfer * cResult;
-
-      cTransfer.FromEulerAngles(argos::CRadians::ZERO, argos::CRadians::ZERO, pcEulerAngles[2]);
-      cResult = cTransfer * cResult;
-      
-      //std::cerr << "Rotation[" << lst_detections.size() << "]: " << cResult << std::endl;
-      vecResults.push_back(cResult);
+         for(argos::CRadians& cEulerAngle : pcEulerAngles) {
+            cEulerAngle.UnsignedNormalize();
+            //cEulerAngle.SetValue(std::round(cEulerAngle.GetValue() / (0.5f * ARGOS_PI)) * (0.5f * ARGOS_PI));
+         }         
+         
+         enum class EAxis {
+            Z, Y, X
+         };
+         
+         auto EAxisToString = [] (EAxis e_axis) {
+            switch(e_axis) {
+               case EAxis::Z:
+                  return std::string("Z");
+                  break;
+               case EAxis::Y:
+                  return std::string("Y");
+                  break;
+               case EAxis::X:
+                  return std::string("X");
+                  break;
+            }
+         };
+                          
+         std::map<EAxis, std::pair<EAxis, bool>> mapTranslations = {
+            { EAxis::Z, {EAxis::Z, false} },
+            { EAxis::Y, {EAxis::Y, false} },
+            { EAxis::X, {EAxis::X, false} }, 
+         };
+         
+         /*         
+         std::vector<std::pair<EAxis, argos::UInt8>> vecReqRotations = {
+            { EAxis::Z, std::round(pcEulerAngles[0].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
+            { EAxis::Y, std::round(pcEulerAngles[1].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
+            { EAxis::X, std::round(pcEulerAngles[2].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
+         };
+         */
+         
+         std::vector<std::pair<EAxis, argos::UInt8>> vecReqRotations = {
+            { EAxis::Z, 3 },
+            { EAxis::Y, 1 },
+            { EAxis::X, 2 },
+         };
+         
+         std::set<std::pair<EAxis, EAxis>> setSignChangeReq = {
+            { EAxis::X, EAxis::Y },
+            { EAxis::Y, EAxis::Z },
+            { EAxis::Z, EAxis::X },
+         };
+                  
+         /* Consider the rotation on each axis */        
+         for(const std::pair<EAxis, argos::UInt8>& t_rotation_steps : vecReqRotations) {
+         
+            std::cerr << "vecReqRotations(" << EAxisToString(t_rotation_steps.first) << ", " << static_cast<int>(t_rotation_steps.second) << ")" << std::endl;
             
-      ////// ZE BUGS
-                    
-      
-      /* Extract the position and rotation of the block, relative to the camera
-      ToStandardRepresentation(sBlock.RotationVector, 
-                               sBlock.TranslationVector,
-                               sBlock.X,
-                               sBlock.Y,
-                               sBlock.Z,
-                               sBlock.Yaw,
-                               sBlock.Pitch,
-                               sBlock.Roll); 
-      */
+            /* For each translation */
+            for(std::pair<const EAxis, std::pair<EAxis, bool>>& t_translation : mapTranslations) {
+            
+               std::cerr << "  checking translation " << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
 
-      /* compute the 2D coordinates of the block */
-      
-      /*
-      std::vector<cv::Point3f> vecCentrePoint = {
-         cv::Point3f(0,0,0)
-      };
-      std::vector<cv::Point2f> vecCentrePixel;
-      cv::projectPoints(vecCentrePoint,
-                        sBlock.RotationVector,
-                        sBlock.TranslationVector,
-                        m_cCameraMatrix,
-                        m_cDistortionParameters,
-                        vecCentrePixel);
-      sBlock.Coordinates = std::pair<float, float>(vecCentrePixel[0].x, vecCentrePixel[0].y);
-      */
+               /* if the rotation occurs along the axis of the current translation, skip */
+               if(t_translation.second.first == t_rotation_steps.first) {
+                  std::cerr << "  skipping " << EAxisToString(t_translation.second.first) << std::endl;
+                  continue;
+               }
+               else {
+                  std::cerr << "  rotating " << EAxisToString(t_translation.second.first) << " by " << static_cast<int>(t_rotation_steps.second) << " steps" << std::endl;
+                  /* for each rotation step */
+                  for(argos::UInt8 un_rotation_steps = 0; 
+                      un_rotation_steps < t_rotation_steps.second;
+                      un_rotation_steps++) {
+                     /* Find the axis e_axis to swap to */
+                     for(EAxis e_axis : {EAxis::Z, EAxis::Y, EAxis::X}) {
+                        if(e_axis != t_translation.second.first &&
+                           e_axis != t_rotation_steps.first) {
+                           std::cerr << "  " << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << " becomes ";
+                           if(setSignChangeReq.count(std::make_pair(t_translation.second.first, e_axis)) == 1) {
+                              /* invert the axis */
+                              
+                              t_translation.second.second = !t_translation.second.second;
+                           }
+                           t_translation.second.first = e_axis;
+                           std::cerr << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
+                           break;
+                        }
+                     }
+                  }
+               }
+            }
+         }
+         
+         
+         
+         for(std::pair<const EAxis, std::pair<EAxis, bool>> t_translation : mapTranslations) {
+            std::cerr << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
+         }
+         
+         //cResult.FromEulerAngles()
+         
+         //std::cerr << "Rotation[" << lst_detections.size() << "]: " << cResult << std::endl;
+         vecResults.push_back(cResult);
+               
+         ////// ZE BUGS
+                       
+         
+         /* Extract the position and rotation of the block, relative to the camera
+         ToStandardRepresentation(sBlock.RotationVector, 
+                                  sBlock.TranslationVector,
+                                  sBlock.X,
+                                  sBlock.Y,
+                                  sBlock.Z,
+                                  sBlock.Yaw,
+                                  sBlock.Pitch,
+                                  sBlock.Roll); 
+         */
 
+         /* compute the 2D coordinates of the block */
+         
+         /*
+         std::vector<cv::Point3f> vecCentrePoint = {
+            cv::Point3f(0,0,0)
+         };
+         std::vector<cv::Point2f> vecCentrePixel;
+         cv::projectPoints(vecCentrePoint,
+                           sBlock.RotationVector,
+                           sBlock.TranslationVector,
+                           m_cCameraMatrix,
+                           m_cDistortionParameters,
+                           vecCentrePixel);
+         sBlock.Coordinates = std::pair<float, float>(vecCentrePixel[0].x, vecCentrePixel[0].y);
+         */
+      }
       /* store the block into our block list */
       lst_detections.push_back(sBlock);
    }
@@ -184,41 +377,6 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_grayscale_frame,
    lst_detections.swap(lst_blocks);
 }
 
-/****************************************/
-/****************************************/
-
-void CBlockSensor::ToStandardRepresentation(const cv::Matx31f& c_rotation_vector,
-                                            const cv::Matx31f& c_translation_vector,
-                                            float& f_x, float& f_y, float& f_z,
-                                            float& f_yaw, float& f_pitch, float& f_roll) {
-
-   /* Extract the position and rotation of the block, relative to the camera */
-   cv::Matx33f cR;
-   cv::Rodrigues(c_rotation_vector, cR);
-   cv::Matx44f cT(cR(0,0), cR(0,1), cR(0,2), c_translation_vector(0),
-                  cR(1,0), cR(1,1), cR(1,2), c_translation_vector(1),
-                  cR(2,0), cR(2,1), cR(2,2), c_translation_vector(2),
-                  0,       0,       0,       1);
-   cv::Matx44f cM( 0,  0,  1,  0,
-                  -1,  0,  0,  0,
-                   0, -1,  0,  0,
-                   0,  0,  0,  1);
-   cv::Matx44f cMT(cM, cT, cv::Matx_MatMulOp());
-
-   cv::Matx33f cF( 1,  0,  0, 
-                   0, -1,  0,
-                   0,  0,  1);
-   cv::Matx33f cFR(cF, cR, cv::Matx_MatMulOp());
-
-   /* Store the 3D coordinates of the block into the struct */
-   f_x = cMT(0,3);
-   f_y = cMT(1,3);
-   f_z = cMT(2,3);
-   f_yaw = StandardRad(atan2(cFR(1,0), cFR(0,0)));
-   f_pitch = StandardRad(atan2(-cFR(2,0), cFR(0,0) * cos(f_yaw) + cFR(1,0) * sin(f_yaw)));
-   f_roll  = StandardRad(atan2( cFR(0,2) * sin(f_yaw) - cFR(1,2) * cos(f_yaw),
-                               -cFR(0,1) * sin(f_yaw) + cFR(1,1) * cos(f_yaw)));
-}
 
 /****************************************/
 /****************************************/

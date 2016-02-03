@@ -13,7 +13,9 @@ public:
 
    CBlockSensor();
 
-   void DetectBlocks(const cv::Mat& c_grayscale_frame,
+   void DetectBlocks(const cv::Mat& c_y_frame,
+                     cv::Mat& c_u_frame,
+                     cv::Mat& c_v_frame,
                      std::list<SBlock>& lst_blocks);
 
    const cv::Matx33f& GetCameraMatrix() {
@@ -25,11 +27,6 @@ public:
    }
 
 private:
-
-   void ToStandardRepresentation(const cv::Matx31f& c_rotation_vector,
-                                 const cv::Matx31f& c_translation_vector,
-                                 float& f_x, float& f_y, float& f_z,
-                                 float& f_yaw, float& f_pitch, float& f_roll);
 
    typedef std::list<SBlock> TCluster;
    typedef std::list<TCluster> TClusterList;
@@ -44,6 +41,9 @@ private:
    /* April tag (w.r.t. black frame) and block side length in meters */
    const float m_fTagSize = 0.024;
    const float m_fBlockSideLength = 0.055;
+   const float m_fInterLedLength = 0.040;
+   const unsigned int m_unLedRegionOfInterestLength = 5;
+   const unsigned int m_unLedLuminanceOnThreshold = 192;
    
    /* camera focal length in pixels */
    const float m_fFx = 555.0; 

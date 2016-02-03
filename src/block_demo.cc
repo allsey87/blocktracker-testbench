@@ -35,23 +35,25 @@ int main(int n_arg_count, char* ppch_args[]) {
    std::string strInputPath("/home/allsey87/Workspace/blocktracker-testbench/block.png");
        
    //cv::namedWindow("Input Frame");
-   cv::namedWindow("Block Detector Output");
+   //cv::namedWindow("Block Detector Output");
      
    unsigned int unBlockId = 0;
  
-   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
-   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
+   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
+   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
 
    //unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
 
-   while(cv::waitKey(50) == -1) {
 
-      m_pcISSCaptureDevice->read(sCurrentFrame.U);
+   while(m_pcISSCaptureDevice->read(sCurrentFrame.U)) {
+
       cv::cvtColor(sCurrentFrame.U, sCurrentFrame.Y, CV_BGR2GRAY);
       
       //cv::imshow("Input Frame", sCurrentFrame.U);
 
-      m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, lstDetectedBlocks);
+      m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, sCurrentFrame.U, sCurrentFrame.V, lstDetectedBlocks);
+      
+      
       /*
       for(SBlock& s_block : lstDetectedBlocks) {
          std::cerr << "Rotation Vector: " << std::endl
@@ -63,16 +65,22 @@ int main(int n_arg_count, char* ppch_args[]) {
                    << s_block.Yaw << ", " << s_block.Pitch << ", " << s_block.Roll << std::endl;
       }
       */
+      
+      /*      
       unsigned int i = 0;
          
       for(SBlock& s_block : lstDetectedBlocks) {
          CFrameAnnotator::Annotate(sCurrentFrame.U, s_block.Tags[0], std::to_string(i));
          i++;
       }
-      
-      cv::imshow("Block Detector Output", sCurrentFrame.U);
-   }
+      */
 
-   
+      cv::imshow("Block Detector Output", sCurrentFrame.U);
+      if(cv::waitKey(1) != -1) {
+         return 0;
+      }
+   }
+   cv::waitKey(0);
+   return 0;
 }
 
