@@ -43,6 +43,8 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
       
       
    std::vector<argos::CQuaternion> vecResults; 
+   
+   unsigned int counter_to_remove = 0;
 
    for(const AprilTags::TagDetection& c_detection : vecDetections) {
       /* create a new block for this detection */
@@ -88,6 +90,8 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
       cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[1], cv::Scalar(0,0,255), 2);
       cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[2], cv::Scalar(0,255,0), 2);
       cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[3], cv::Scalar(255,0,0), 2);
+      
+      cv::putText(c_u_frame, std::to_string(counter_to_remove++), vecLedAxesPixels[3], cv::FONT_HERSHEY_SIMPLEX, 0.75, cv::Scalar(255,255,255), 2);
 
       /* Detect the LEDs */
       std::vector<cv::Point3f> vecLedPoints = {
@@ -185,24 +189,26 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
       /////// DEBUG
       
       /* if there is at least one block already in the vector */
+      cv::Matx33f cThisRotationMatrixCV;
+      cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
+      argos::CRotationMatrix3 cThisRotationMatrix;
+      cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
+      argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();         
+
+      std::cerr << "cThisRotationQuaternion = " << cThisRotationQuaternion << "(" << cThisRotationQuaternion.Length() << ")" << std::endl;
       
       if(lst_detections.size() > 0) {
 
-         //std::cerr << "Translation: " << sBlock.TranslationVector << std::endl;
-         
-         cv::Matx33f cThisRotationMatrixCV, cReferenceRotationMatrixCV;
-
-         cv::Rodrigues(sBlock.RotationVector, cThisRotationMatrixCV);
+         std::cerr << "-------------- " << counter_to_remove - 1 << " --------------" << std::endl;
+         cv::Matx33f cReferenceRotationMatrixCV;
          cv::Rodrigues(lst_detections.front().RotationVector, cReferenceRotationMatrixCV);
-         
-         argos::CRotationMatrix3 cThisRotationMatrix;
          argos::CRotationMatrix3 cReferenceRotationMatrix;
-         
-         cThisRotationMatrix.Set(&cThisRotationMatrixCV(0,0));
          cReferenceRotationMatrix.Set(&cReferenceRotationMatrixCV(0,0));
-         
-         argos::CQuaternion cThisRotationQuaternion = cThisRotationMatrix.ToQuaternion();
          argos::CQuaternion cReferenceRotationQuaternion = cReferenceRotationMatrix.ToQuaternion();
+         
+         std::cerr << "cReferenceRotationQuaternion = " << cReferenceRotationQuaternion << "(" << cReferenceRotationQuaternion.Length() << ")" << std::endl;
+
+         
          //argos::CQuaternion cReferenceRotationQuaternion(argos::CRadians::ZERO, argos::CVector3::Z);
          
          //std::cerr << "This block rotation: " << cThisRotationQuaternion << std::endl;
@@ -210,7 +216,7 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
          
          argos::CQuaternion cTransfer(cReferenceRotationQuaternion * cThisRotationQuaternion.Inverse());
          
-         //std::cerr << "Transfer rotation: " << cTransfer << std::endl;
+         std::cerr << "cTransfer = " << cTransfer << std::endl;
 
          argos::CRadians pcEulerAngles[3];
          argos::CQuaternion cResult;
@@ -223,7 +229,7 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
          }         
          
          enum class EAxis {
-            Z, Y, X
+            Z = 0, Y = 1, X = 2
          };
          
          auto EAxisToString = [] (EAxis e_axis) {
@@ -246,18 +252,10 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
             { EAxis::X, {EAxis::X, false} }, 
          };
          
-         /*         
          std::vector<std::pair<EAxis, argos::UInt8>> vecReqRotations = {
             { EAxis::Z, std::round(pcEulerAngles[0].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
             { EAxis::Y, std::round(pcEulerAngles[1].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
             { EAxis::X, std::round(pcEulerAngles[2].GetValue() / argos::CRadians::PI_OVER_TWO.GetValue()) },
-         };
-         */
-         
-         std::vector<std::pair<EAxis, argos::UInt8>> vecReqRotations = {
-            { EAxis::Z, 3 },
-            { EAxis::Y, 1 },
-            { EAxis::X, 2 },
          };
          
          std::set<std::pair<EAxis, EAxis>> setSignChangeReq = {
@@ -268,21 +266,13 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
                   
          /* Consider the rotation on each axis */        
          for(const std::pair<EAxis, argos::UInt8>& t_rotation_steps : vecReqRotations) {
-         
-            std::cerr << "vecReqRotations(" << EAxisToString(t_rotation_steps.first) << ", " << static_cast<int>(t_rotation_steps.second) << ")" << std::endl;
-            
             /* For each translation */
             for(std::pair<const EAxis, std::pair<EAxis, bool>>& t_translation : mapTranslations) {
-            
-               std::cerr << "  checking translation " << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
-
                /* if the rotation occurs along the axis of the current translation, skip */
                if(t_translation.second.first == t_rotation_steps.first) {
-                  std::cerr << "  skipping " << EAxisToString(t_translation.second.first) << std::endl;
                   continue;
                }
                else {
-                  std::cerr << "  rotating " << EAxisToString(t_translation.second.first) << " by " << static_cast<int>(t_rotation_steps.second) << " steps" << std::endl;
                   /* for each rotation step */
                   for(argos::UInt8 un_rotation_steps = 0; 
                       un_rotation_steps < t_rotation_steps.second;
@@ -291,14 +281,11 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
                      for(EAxis e_axis : {EAxis::Z, EAxis::Y, EAxis::X}) {
                         if(e_axis != t_translation.second.first &&
                            e_axis != t_rotation_steps.first) {
-                           std::cerr << "  " << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << " becomes ";
                            if(setSignChangeReq.count(std::make_pair(t_translation.second.first, e_axis)) == 1) {
                               /* invert the axis */
-                              
                               t_translation.second.second = !t_translation.second.second;
                            }
                            t_translation.second.first = e_axis;
-                           std::cerr << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
                            break;
                         }
                      }
@@ -307,13 +294,30 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
             }
          }
          
+         cThisRotationQuaternion.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
          
-         
+         std::cerr << "Before mapping: ";
+         for(EAxis e_axis : {EAxis::Z, EAxis::Y, EAxis::X}) {
+            std::cerr << EAxisToString(e_axis) << ":" << pcEulerAngles[static_cast<int>(e_axis)].GetValue() << ", ";
+         }
+         std::cerr << std::endl;
+                 
          for(std::pair<const EAxis, std::pair<EAxis, bool>> t_translation : mapTranslations) {
             std::cerr << EAxisToString(t_translation.first) << " -> " << (t_translation.second.second ? "-" : "") << EAxisToString(t_translation.second.first) << std::endl;
          }
          
-         //cResult.FromEulerAngles()
+         cResult.FromEulerAngles(pcEulerAngles[static_cast<int>(mapTranslations[EAxis::Z].first)] * (mapTranslations[EAxis::Z].second ? -1 : 1),
+                                 pcEulerAngles[static_cast<int>(mapTranslations[EAxis::Y].first)] * (mapTranslations[EAxis::Y].second ? -1 : 1),
+                                 pcEulerAngles[static_cast<int>(mapTranslations[EAxis::X].first)] * (mapTranslations[EAxis::X].second ? -1 : 1));
+                                 
+         cResult.ToEulerAngles(pcEulerAngles[0], pcEulerAngles[1], pcEulerAngles[2]);
+         
+                
+         std::cerr << "After mapping: ";
+         for(EAxis e_axis : {EAxis::Z, EAxis::Y, EAxis::X}) {
+            std::cerr << EAxisToString(e_axis) << ":" << pcEulerAngles[static_cast<int>(e_axis)].GetValue() << ", ";
+         }
+         std::cerr << std::endl;
          
          //std::cerr << "Rotation[" << lst_detections.size() << "]: " << cResult << std::endl;
          vecResults.push_back(cResult);

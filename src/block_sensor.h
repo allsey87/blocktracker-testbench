@@ -54,7 +54,8 @@ private:
    const float m_fPy = 180.0;
 
    /* Tag to block translation and rotation constants */
-   const cv::Matx31f m_cTagToBlockTranslation = cv::Matx31f(0, 0, -m_fBlockSideLength / 2);
+   const cv::Matx31f m_cTagToBlockTranslation = cv::Matx31f(0, 0, 0);
+   //const cv::Matx31f m_cTagToBlockTranslation = cv::Matx31f(0, 0, -m_fBlockSideLength / 2);
    const cv::Matx31f m_cTagToBlockRotation = cv::Matx31f(0, 0, 0);
 
    /* corner locations of the april tag */

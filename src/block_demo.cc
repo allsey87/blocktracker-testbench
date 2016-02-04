@@ -39,8 +39,8 @@ int main(int n_arg_count, char* ppch_args[]) {
      
    unsigned int unBlockId = 0;
  
-   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
-   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
+   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
+   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
 
    //unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
 
@@ -74,6 +74,24 @@ int main(int n_arg_count, char* ppch_args[]) {
          i++;
       }
       */
+      
+      std::vector<cv::Point3f> vecGCSAxesPoints = {
+         cv::Point3f(0, 0, 0),
+         cv::Point3f(0.05, 0, 0),
+         cv::Point3f(0, 0.05, 0),
+         cv::Point3f(0, 0, 0.05),
+      };
+      std::vector<cv::Point2f> vecGCSAxesPixels;
+      cv::projectPoints(vecGCSAxesPoints,
+                        cv::Matx31f(0, 0, 0),
+                        cv::Matx31f(0, 0, 0),
+                        m_pcBlockSensor->GetCameraMatrix(),
+                        m_pcBlockSensor->GetDistortionParameters(),
+                        vecGCSAxesPixels);
+                             
+      cv::line(sCurrentFrame.U, vecGCSAxesPixels[0], vecGCSAxesPixels[1], cv::Scalar(0,0,255), 2);
+      cv::line(sCurrentFrame.U, vecGCSAxesPixels[0], vecGCSAxesPixels[2], cv::Scalar(0,255,0), 2);
+      cv::line(sCurrentFrame.U, vecGCSAxesPixels[0], vecGCSAxesPixels[3], cv::Scalar(255,0,0), 2);
 
       cv::imshow("Block Detector Output", sCurrentFrame.U);
       if(cv::waitKey(1) != -1) {
