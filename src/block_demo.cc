@@ -32,25 +32,28 @@ int main(int n_arg_count, char* ppch_args[]) {
 
    std::list<SBlock> lstDetectedBlocks;
    
-   std::string strInputPath("/home/allsey87/Workspace/blocktracker-testbench/block.png");
+   std::string strInputPathA("/home/allsey87/Workspace/blocktracker-testbench/sample/CA_%d.png");
+   std::string strInputPathB("/home/allsey87/Workspace/blocktracker-testbench/sample/CB_%d.png");
+   std::string strInputPathC("/home/allsey87/Workspace/blocktracker-testbench/sample/CC_%d.png");
        
    //cv::namedWindow("Input Frame");
    //cv::namedWindow("Block Detector Output");
      
    unsigned int unBlockId = 0;
  
-   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
-   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
+   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPathB.c_str());
+   //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
 
    //unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
 
+   unsigned int unFrameIdx = 0;
 
    while(m_pcISSCaptureDevice->read(sCurrentFrame.U)) {
 
       cv::cvtColor(sCurrentFrame.U, sCurrentFrame.Y, CV_BGR2GRAY);
       
       //cv::imshow("Input Frame", sCurrentFrame.U);
-
+      std::cerr << "---------------- Frame " << unFrameIdx << "----------------" << std::endl;
       m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, sCurrentFrame.U, sCurrentFrame.V, lstDetectedBlocks);
       
       
@@ -93,10 +96,10 @@ int main(int n_arg_count, char* ppch_args[]) {
       cv::line(sCurrentFrame.U, vecGCSAxesPixels[0], vecGCSAxesPixels[2], cv::Scalar(0,255,0), 2);
       cv::line(sCurrentFrame.U, vecGCSAxesPixels[0], vecGCSAxesPixels[3], cv::Scalar(255,0,0), 2);
 
-      cv::imshow("Block Detector Output", sCurrentFrame.U);
-      if(cv::waitKey(1) != -1) {
-         return 0;
-      }
+      std::string strWindowTitle = "Block Detector Output " + std::to_string(unFrameIdx);
+
+      cv::imshow(strWindowTitle.c_str(), sCurrentFrame.U);
+      unFrameIdx++;
    }
    cv::waitKey(0);
    return 0;

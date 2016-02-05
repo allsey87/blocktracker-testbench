@@ -197,6 +197,18 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
 
       std::cerr << "cThisRotationQuaternion = " << cThisRotationQuaternion << "(" << cThisRotationQuaternion.Length() << ")" << std::endl;
       
+      argos::CRadians cBlockEulerAngles[3];
+      
+      cThisRotationQuaternion.ToEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
+      
+      argos::CRange<argos::CRadians> cBlockRotationRange(-argos::CRadians::PI_OVER_FOUR, argos::CRadians::PI_OVER_FOUR);
+      
+      cBlockRotationRange.WrapValue(cBlockEulerAngles[0]);
+      
+      std::cerr << "cThisRotationQuaternion[0] = " << cBlockEulerAngles[0] << std::endl;
+      
+      
+      
       if(lst_detections.size() > 0) {
 
          std::cerr << "-------------- " << counter_to_remove - 1 << " --------------" << std::endl;
