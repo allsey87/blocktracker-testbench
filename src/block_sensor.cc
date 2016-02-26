@@ -3,6 +3,22 @@
 
 #include "tag.h"
 #include "block.h"
+
+#include <set>
+#include <vector>
+#include <map>
+#include <cstring>
+
+#include <apriltag/apriltag.h>
+#include <apriltag/tag36h11.h>
+#include <apriltag/image_u8.h>
+#include <apriltag/zarray.h>
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+
 #include <argos3/core/utility/math/matrix/rotationmatrix3.h>
 #include <argos3/core/utility/math/quaternion.h>
 #include <argos3/core/utility/math/angles.h>
@@ -23,7 +39,23 @@ float StandardRad(double t) {
 /****************************************/
 /****************************************/
 
-CBlockSensor::CBlockSensor() {}
+CBlockSensor::CBlockSensor() {
+   /* create the tag family */
+   m_psTagFamily = tag36h11_create();
+   m_psTagFamily->black_border = 1;
+   /* create the tag detector */
+   m_psTagDetector = apriltag_detector_create();
+   /* add the tag family to the tag detector */
+   apriltag_detector_add_family(m_psTagDetector, m_psTagFamily);
+   /* configure the tag detector */
+   m_psTagDetector->quad_decimate = 1.0f;
+   m_psTagDetector->quad_sigma = 0.0f;
+   m_psTagDetector->nthreads = 2;
+   m_psTagDetector->debug = 0;
+   m_psTagDetector->refine_edges = 1;
+   m_psTagDetector->refine_decode = 0;
+   m_psTagDetector->refine_pose = 0;
+}
 
 /****************************************/
 /****************************************/
@@ -37,30 +69,53 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
                                 
    /* Create a list for the detections */
    std::list<SBlock> lst_detections;
-   /* extract tags from frame */
-   std::vector<AprilTags::TagDetection> vecDetections =
-      m_cTagDetector.extractTags(c_y_frame);
+
+   /* extract tags from frame 
+   image_u8_t ptImage { c_y_frame.cols, 
+                        c_y_frame.rows,
+                        c_y_frame.cols,
+                        c_y_frame.data };
+                        */ 
+   image_u8_t* ptImage = image_u8_create(c_y_frame.cols, c_y_frame.rows);
+   
+   for (unsigned int un_row = 0; un_row < ptImage->height; un_row++) {
+      std::memcpy(&ptImage->buf[un_row * ptImage->stride],
+                  c_y_frame.row(un_row).data,
+                  ptImage->width);
+   }
       
-      
+                        
+   zarray_t* ptDetections = apriltag_detector_detect(m_psTagDetector, ptImage);
+
    std::vector<argos::CQuaternion> vecResults; 
    
    unsigned int counter_to_remove = 0;
 
-   for(const AprilTags::TagDetection& c_detection : vecDetections) {
+   for(unsigned int un_det_index = 0; un_det_index < zarray_size(ptDetections); un_det_index++) {
+      apriltag_detection_t *ptDetection;
+      zarray_get(ptDetections, un_det_index, &tDetection);
+      
+      std::cerr << "Detection " << un_det_index << ", id = " << ptDetection->id << std::endl;
       /* create a new block for this detection */
       SBlock sBlock;                                
       /* Add an empty tag to the block and get a reference to it */
       sBlock.Tags.emplace_back();
       STag& sTag = sBlock.Tags.back();
       /* Copy the corners of the tags into an STag for future use */
-      sTag.Corners.assign(c_detection.p, c_detection.p + 4);
-      sTag.Center = c_detection.cxy;
+      sTag.Corners = {
+         std::pair<float, float>(ptDetection->p[0][0], ptDetection->p[0][1]),
+         std::pair<float, float>(ptDetection->p[1][0], ptDetection->p[1][1]),
+         std::pair<float, float>(ptDetection->p[2][0], ptDetection->p[2][1]),
+         std::pair<float, float>(ptDetection->p[3][0], ptDetection->p[3][1]),
+      };
+      /* Copy the tag center coordinate */
+      sTag.Center = std::pair<float, float>(ptDetection->c[0], ptDetection->c[1]);
       /* Create a vector of OpenCV 2D points representing the tag */
       std::vector<cv::Point2f> vecImagePts = {
-         cv::Point2f(c_detection.p[0].first, c_detection.p[0].second),
-         cv::Point2f(c_detection.p[1].first, c_detection.p[1].second),
-         cv::Point2f(c_detection.p[2].first, c_detection.p[2].second),
-         cv::Point2f(c_detection.p[3].first, c_detection.p[3].second)
+         cv::Point2f(tDetection->p[0][0], ptDetection->p[0][1]),
+         cv::Point2f(tDetection->p[1][0], ptDetection->p[1][1]),
+         cv::Point2f(tDetection->p[2][0], ptDetection->p[2][1]),
+         cv::Point2f(tDetection->p[3][0], ptDetection->p[3][1]),
       };
       /* OpenCV SolvePnP - detect the translation between the camera 
          plane and the tag plane */
@@ -92,89 +147,6 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
       cv::line(c_u_frame, vecLedAxesPixels[0], vecLedAxesPixels[3], cv::Scalar(255,0,0), 2);
       
       cv::putText(c_u_frame, std::to_string(counter_to_remove++), vecLedAxesPixels[3], cv::FONT_HERSHEY_SIMPLEX, 0.75, cv::Scalar(255,255,255), 2);
-
-      /* Detect the LEDs */
-      std::vector<cv::Point3f> vecLedPoints = {
-         cv::Point3f(-m_fInterLedLength * 0.5f, 0, 0),
-         cv::Point3f( m_fInterLedLength * 0.5f, 0, 0),
-         cv::Point3f( 0, -m_fInterLedLength * 0.5f, 0),
-         cv::Point3f( 0,  m_fInterLedLength * 0.5f, 0)
-      };
-      std::vector<cv::Point2f> vecLedCentrePixels;
-      cv::projectPoints(vecLedPoints,
-                        sTag.RotationVector,
-                        sTag.TranslationVector,
-                        m_cCameraMatrix,
-                        m_cDistortionParameters,
-                        vecLedCentrePixels);
-                       
-      for(cv::Point2f& c_led_point : vecLedCentrePixels) {
-         /* skip this LED if the coordinates are out of range */
-         if(c_led_point.x < (m_unLedRegionOfInterestLength / 2u) ||
-            c_led_point.x > (c_u_frame.cols - 1) - (m_unLedRegionOfInterestLength / 2u)) {
-            continue;   
-         }
-
-         if(c_led_point.y < (m_unLedRegionOfInterestLength / 2u) ||
-            c_led_point.y > (c_u_frame.rows - 1) - (m_unLedRegionOfInterestLength / 2u)) {
-            continue;   
-         }
-         
-         cv::Rect cLedRectangle(c_led_point.x - (m_unLedRegionOfInterestLength / 2u),
-                                c_led_point.y - (m_unLedRegionOfInterestLength / 2u),
-                                m_unLedRegionOfInterestLength,
-                                m_unLedRegionOfInterestLength);
-         
-         // DEBUG
-         cv::rectangle(c_u_frame, cLedRectangle, cv::Scalar(0, 0, 0));
-         // DEBUG
-
-         struct {
-            cv::Mat Y, U, V;
-         } sRegionOfInterest = {
-            c_u_frame(cLedRectangle),
-            c_u_frame(cLedRectangle),
-            c_u_frame(cLedRectangle),
-         };
-         
-         float fSumY = 0.0f, fWeightedAverageU = 0.0f, fWeightedAverageV = 0.0f;
-         
-         for(unsigned int un_row = 0; un_row < sRegionOfInterest.Y.rows; un_row++) {
-            for(unsigned int un_col = 0; un_col < sRegionOfInterest.Y.cols; un_col++) {
-               float fPixelY = sRegionOfInterest.Y.at<float>(un_row, un_col);
-               fSumY += fPixelY;
-               fWeightedAverageU += fPixelY * sRegionOfInterest.U.at<float>(un_row, un_col);
-               fWeightedAverageV += fPixelY * sRegionOfInterest.V.at<float>(un_row, un_col);
-            }
-         }
-         
-         fWeightedAverageU /= fSumY;
-         fWeightedAverageV /= fSumY;
-         
-         if(fSumY / (m_unLedRegionOfInterestLength * m_unLedRegionOfInterestLength) > 
-            m_unLedLuminanceOnThreshold) {
-            if(fWeightedAverageU > 128.0f) {
-               if(fWeightedAverageV > 128.0f) {
-                  sTag.LedStates.push_back(ELedState::Q1);
-               }
-               else {
-                  sTag.LedStates.push_back(ELedState::Q4);
-               }
-            }
-            else {
-               if(fWeightedAverageV > 128.0f) {
-                  sTag.LedStates.push_back(ELedState::Q2);
-               }
-               else {
-                  sTag.LedStates.push_back(ELedState::Q3);
-               }
-            }
-         }
-         else {
-            sTag.LedStates.push_back(ELedState::OFF);
-         }
-      }
-
 
       /* Compose the tag-to-block and camera-to-tag transformations to get
          the camera-to-block transformation, storing the result directly 
@@ -367,6 +339,8 @@ void CBlockSensor::DetectBlocks(const cv::Mat& c_y_frame,
       /* store the block into our block list */
       lst_detections.push_back(sBlock);
    }
+   
+   apriltag_detections_destroy(ptDetections);
    /* cluster the blocks */
    //ClusterDetections(lst_detections, lst_blocks);
    argos::CQuaternion cEndResult;

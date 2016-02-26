@@ -10,7 +10,9 @@
 #include <unistd.h>
 
 #include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
 
 #include "block_tracker.h"
 #include "block_sensor.h"
@@ -35,13 +37,15 @@ int main(int n_arg_count, char* ppch_args[]) {
    std::string strInputPathA("/home/allsey87/Workspace/blocktracker-testbench/sample/CA_%d.png");
    std::string strInputPathB("/home/allsey87/Workspace/blocktracker-testbench/sample/CB_%d.png");
    std::string strInputPathC("/home/allsey87/Workspace/blocktracker-testbench/sample/CC_%d.png");
+   
+   std::string strInputPathD("/home/allsey87/Workspace/blocktracker-testbench/block.png");
        
    //cv::namedWindow("Input Frame");
    //cv::namedWindow("Block Detector Output");
      
    unsigned int unBlockId = 0;
  
-   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPathB.c_str());
+   cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(strInputPathD.c_str());
    //cv::VideoCapture* m_pcISSCaptureDevice = new cv::VideoCapture(0);
 
    //unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
@@ -69,14 +73,13 @@ int main(int n_arg_count, char* ppch_args[]) {
       }
       */
       
-      /*      
+      
       unsigned int i = 0;
          
       for(SBlock& s_block : lstDetectedBlocks) {
          CFrameAnnotator::Annotate(sCurrentFrame.U, s_block.Tags[0], std::to_string(i));
          i++;
       }
-      */
       
       std::vector<cv::Point3f> vecGCSAxesPoints = {
          cv::Point3f(0, 0, 0),

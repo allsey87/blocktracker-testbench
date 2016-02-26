@@ -10,8 +10,8 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 find_package(Eigen3)
 include_directories(${EIGEN3_INCLUDE_DIR})
-find_package(AprilTags REQUIRED)
-include_directories(${AprilTags_INCLUDE_DIR})
+find_package(AprilTag REQUIRED)
+include_directories(${AprilTag_INCLUDE_DIR})
 
 include_directories("./")
 
@@ -31,7 +31,7 @@ add_executable(blocktracker
 
 set_property(TARGET blocktracker PROPERTY CXX_STANDARD 11)
 
-target_link_libraries(blocktracker ${AprilTags_LIB} ${OpenCV_LIBS})
+target_link_libraries(blocktracker ${AprilTag_LIB} ${OpenCV_LIBS})
 install(TARGETS blocktracker DESTINATION bin)
 
 

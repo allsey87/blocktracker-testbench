@@ -1,11 +1,14 @@
 #ifndef BLOCK_SENSOR_H
 #define BLOCK_SENSOR_H
 
-#include <apriltags/TagDetector.h>
-#include <apriltags/Tag36h11.h>
 #include <opencv2/core/core.hpp>
 
 #include "block.h"
+
+#include <list>
+
+struct apriltag_family;
+struct apriltag_detector;
 
 class CBlockSensor {
    
@@ -35,8 +38,11 @@ private:
                           std::list<SBlock>& lst_blocks);
 
    /* Initialise select the AprilTag tag family and init the detector */
-   AprilTags::TagCodes m_cTagCodes = AprilTags::TagCodes(AprilTags::tagCodes36h11);
-   AprilTags::TagDetector m_cTagDetector = AprilTags::TagDetector(m_cTagCodes);
+   apriltag_family* m_psTagFamily;
+   apriltag_detector* m_psTagDetector;
+   
+   //AprilTags::TagCodes m_cTagCodes = AprilTags::TagCodes(AprilTags::tagCodes36h11);
+   //AprilTags::TagDetector m_cTagDetector = AprilTags::TagDetector(m_cTagCodes);
 
    /* April tag (w.r.t. black frame) and block side length in meters */
    const float m_fTagSize = 0.024;
