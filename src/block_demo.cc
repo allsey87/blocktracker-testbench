@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <sstream>
 
 #include <error.h>
 #include <signal.h>
@@ -11,6 +12,8 @@
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
 
 #include "block_tracker.h"
 #include "block_sensor.h"
@@ -30,7 +33,7 @@ int main(int n_arg_count, char* ppch_args[]) {
    CBlockSensor* m_pcBlockSensor =
       new CBlockSensor;
    CBlockTracker* m_pcBlockTracker =
-      new CBlockTracker(640u, 360u, 10u, 10u, 0.5f, 50.0f);
+      new CBlockTracker(640u, 360u, 10u, 10u, 0.5f, 5.0f);
 
    std::list<SBlock> lstDetectedBlocks;
    std::list<STarget> lstTrackedTargets;
@@ -59,7 +62,7 @@ int main(int n_arg_count, char* ppch_args[]) {
 
        
          //m_pcBlockSensor->SetCameraPosition();  
-         m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, lstDetectedBlocks);
+         m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, sCurrentFrame.Y, sCurrentFrame.Y, lstDetectedBlocks);
 
          /*
          unBlockId = 0;
@@ -78,7 +81,7 @@ int main(int n_arg_count, char* ppch_args[]) {
          m_pcBlockTracker->AssociateAndTrackTargets(lstDetectedBlocks, lstTrackedTargets);
 
          for(const STarget& s_target : lstTrackedTargets) {
-            ostringstream cText;
+            std::ostringstream cText;
             cText << '[' << s_target.Id << ']';
             
          
@@ -114,7 +117,10 @@ int main(int n_arg_count, char* ppch_args[]) {
             *m_pcTCPImageSocket << sCurrentFrame.Y;
          }
          */
-         cv::waitKey(1);
+         if(unFrameIdx > 50)
+            cv::waitKey(100);
+         else
+            cv::waitKey(1);
       }
    } while(cv::waitKey(0) != 'q');
 }
