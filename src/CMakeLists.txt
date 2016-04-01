@@ -10,8 +10,6 @@ include_directories("./argos3")
 # Find dependencies
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
-find_package(Eigen3)
-include_directories(${EIGEN3_INCLUDE_DIR})
 find_package(AprilTag REQUIRED)
 include_directories(${AprilTag_INCLUDE_DIR})
 

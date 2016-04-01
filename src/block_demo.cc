@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 #include <error.h>
 #include <signal.h>
@@ -14,6 +15,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
+#include <apriltag/image_u8.h>
 
 #include "block_tracker.h"
 #include "block_sensor.h"
@@ -22,62 +24,117 @@
 /****************************************/
 /****************************************/
 
+struct SLoadedImage {
+   std::string FilePath;
+   cv::Mat ImageData;
+   std::chrono::time_point<std::chrono::steady_clock> Timestamp;
+};
+
+std::string strFileSuffix("test_");
+std::string strFileExtension(".png");
 
 int main(int n_arg_count, char* ppch_args[]) {
-   struct {
-      cv::Mat Y;
-      cv::Mat U;
-      cv::Mat V;
-   } sCurrentFrame;
+   std::chrono::time_point<std::chrono::steady_clock> tReferenceTime = std::chrono::steady_clock::now();
+   std::vector<SLoadedImage> vecLoadedImages;
+
+   /* read filenames from std::cin */
+   std::string strFileName;
+   cv::Mat cImageData;
+   int nTimestamp;
+   for(;;) {
+      std::cin >> strFileName;
+      if(std::cin.good()) {
+         cImageData = cv::imread(strFileName.c_str(), CV_LOAD_IMAGE_GRAYSCALE);
+         if(cImageData.data == nullptr) {
+            std::cerr << "could not load: " << strFileName << std::endl;
+            continue;
+         }
+         std::string::size_type unPosStart = strFileName.find(strFileSuffix) + strFileSuffix.size();
+         std::string::size_type unPosEnd = strFileName.find(strFileExtension);
+         if(unPosStart == std::string::npos || unPosEnd == std::string::npos) {
+            std::cerr << "could not find suffix/extension in file name: " << strFileName << std::endl;
+            continue;
+         }
+         std::string strTimestamp = strFileName.substr(unPosStart, unPosEnd - unPosStart);
+         try {
+            nTimestamp = std::stoi(strTimestamp);
+         }
+         catch(const std::exception& ex) {
+            std::cerr << "could not parse timestamp: " << strTimestamp << " from " << strFileName << std::endl;
+            continue;
+         }
+         vecLoadedImages.push_back(SLoadedImage{strFileName, cImageData, tReferenceTime + std::chrono::milliseconds(nTimestamp)});
+      }
+      else {
+         break;
+      }
+   }
+   /* output the number of loaded images */
+   std::cerr << "Loaded " << vecLoadedImages.size() << " images" << std::endl;
+   /* ensure images are in the correct order w.r.t. timestamps */
+   std::sort(std::begin(vecLoadedImages),
+             std::end(vecLoadedImages),
+             [] (const SLoadedImage& s_lhs, const SLoadedImage& s_rhs) {
+               return s_lhs.Timestamp < s_rhs.Timestamp;
+             }
+   );
+
+   // timestamp in seconds as a float
+   //std::chrono::duration<float>(s_loaded_image.Timestamp - tReferenceTime).count()
+
+   std::list<SBlock> lstDetectedBlocks;
+   std::list<STarget> lstTrackedTargets;
 
    CBlockSensor* m_pcBlockSensor =
       new CBlockSensor;
    CBlockTracker* m_pcBlockTracker =
       new CBlockTracker(640u, 360u, 10u, 10u, 0.5f, 5.0f);
-
-   std::list<SBlock> lstDetectedBlocks;
-   std::list<STarget> lstTrackedTargets;
-   
-   std::string strInputPath("/home/allsey87/Workspace/blocktracker-testbench/sample/output_%05d.y.png");
-       
+      
    cv::namedWindow("Input Frame");
    cv::namedWindow("Block Detector Output");
-   
-   cv::VideoCapture* m_pcISSCaptureDevice = nullptr;
-   
-   unsigned int unBlockId = 0;
+
+   cv::moveWindow("Input Frame", 1975, 50);
+
+   cv::moveWindow("Block Detector Output", 1975, 500);
  
-   do {
-      delete m_pcISSCaptureDevice;
-      m_pcISSCaptureDevice = new cv::VideoCapture(strInputPath.c_str());
-   
-      unsigned int unNumberOfFrames = m_pcISSCaptureDevice->get(CV_CAP_PROP_FRAME_COUNT);
-   
-      for(unsigned int unFrameIdx = 0; unFrameIdx < unNumberOfFrames; unFrameIdx++) {
-         std::cerr << "processing frame " << unFrameIdx << std::endl;
-         m_pcISSCaptureDevice->read(sCurrentFrame.U);
-         cv::cvtColor(sCurrentFrame.U, sCurrentFrame.Y, CV_BGR2GRAY);
+   for(;;) {
+      for(SLoadedImage& s_loaded_image : vecLoadedImages) {
+         std::cerr << "processing: " << s_loaded_image.FilePath << std::endl;
          
-         cv::imshow("Input Frame", sCurrentFrame.U);
+         cv::imshow("Input Frame", s_loaded_image.ImageData);
+         
+         lstDetectedBlocks.clear();
+         std::chrono::time_point<std::chrono::steady_clock> tDetectionTime = s_loaded_image.Timestamp;
 
-       
-         //m_pcBlockSensor->SetCameraPosition();  
-         m_pcBlockSensor->DetectBlocks(sCurrentFrame.Y, sCurrentFrame.Y, sCurrentFrame.Y, lstDetectedBlocks);
+         /* convert image to apriltags format */
+         image_u8_t* ptImageY = image_u8_create(s_loaded_image.ImageData.cols, s_loaded_image.ImageData.rows);
+         for (unsigned int un_row = 0; un_row < ptImageY->height; un_row++) {
+            std::memcpy(&ptImageY->buf[un_row * ptImageY->stride],
+            s_loaded_image.ImageData.row(un_row).data,
+            ptImageY->width);
+         }         
 
+         m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, lstDetectedBlocks);
+         
+         image_u8_destroy(ptImageY);
+
+         cv::Mat cAnnotatedImage;
+         cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
+         
          /*
-         unBlockId = 0;
+         unsigned int unBlockId = 0;
          for(const SBlock& s_block : lstDetectedBlocks) {
             std::ostringstream cStream;
             cStream << '[' << unBlockId << ']';
             for(const STag& s_tag : s_block.Tags) {
-               CFrameAnnotator::Annotate(sCurrentFrame.U, s_tag, cStream.str());
+               CFrameAnnotator::Annotate(cAnnotatedImage, s_tag, cStream.str());
             }
             unBlockId++;
          }
          */
 
          // pass the time in miliseconds to track targets to allow for protectile based matching
-         
+
          m_pcBlockTracker->AssociateAndTrackTargets(lstDetectedBlocks, lstTrackedTargets);
 
          for(const STarget& s_target : lstTrackedTargets) {
@@ -85,21 +142,26 @@ int main(int n_arg_count, char* ppch_args[]) {
             cText << '[' << s_target.Id << ']';
             
          
-            CFrameAnnotator::Annotate(sCurrentFrame.U,
+            CFrameAnnotator::Annotate(cAnnotatedImage,
                                       s_target,
                                       m_pcBlockSensor->GetCameraMatrix(),
                                       m_pcBlockSensor->GetDistortionParameters(),
                                       cText.str());
          }
-         
-         cv::imshow("Block Detector Output", sCurrentFrame.U);
+         cv::imshow("Block Detector Output", cAnnotatedImage);
 
-         /*
-         std::ostringstream cName;
-         cName << "../output/" << std::setfill('0') << std::setw(3) << unFrameIdx << ".png";
-         imwrite(cName.str().c_str(), sCurrentFrame.U);
-         */
-         
+         float fTimestamp = std::chrono::duration<float, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count();
+         std::ostringstream cFilePath;
+
+         cFilePath << "/home/allsey87/Workspace/blocktracker-testbench/output/"
+                   << "out"
+                   << std::setfill('0')
+                   << std::setw(7)
+                   << static_cast<int>(fTimestamp)
+                   << ".png";
+
+         cv::imwrite(cFilePath.str().c_str(), cAnnotatedImage);
+        
          /*
          // Cluster targets into structures
          CStructureDetectionAlgorithm::GenerateStructures();
@@ -111,17 +173,12 @@ int main(int n_arg_count, char* ppch_args[]) {
          }
          */
 
-         /* stream frame to host if connected */
-         /*
-         if(m_pcTCPImageSocket != nullptr) {
-            *m_pcTCPImageSocket << sCurrentFrame.Y;
-         }
-         */
-         if(unFrameIdx > 50)
-            cv::waitKey(100);
-         else
-            cv::waitKey(1);
+         /* delay */
+         cv::waitKey(150);
       }
-   } while(cv::waitKey(0) != 'q');
+      if(cv::waitKey(0) == 'q') {
+         break;
+      }
+   } 
 }
 

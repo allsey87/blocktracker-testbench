@@ -15,7 +15,8 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const SBlock& s_block,
                                const cv::Matx33f& c_camera_matrix,
                                const cv::Vec4f& c_distortion_parameters,
-                               const std::string& s_text) {
+                               const std::string& s_text,
+                               bool b_draw_thick) {
    /* project points is checking correctness */
    std::vector<cv::Point3f> vecInputTargetPoints;
    std::vector<cv::Point2f> vecOutputImagePoints;
@@ -36,20 +37,20 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                      c_distortion_parameters,
                      vecOutputImagePoints);
 
-   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[1], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[2], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[3], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[0], cv::Scalar(255,0,0), 2);
+   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[1], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[2], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[3], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[0], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
 
-   cv::line(c_frame, vecOutputImagePoints[4], vecOutputImagePoints[5], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[5], vecOutputImagePoints[6], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[6], vecOutputImagePoints[7], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[7], vecOutputImagePoints[4], cv::Scalar(255,0,0), 2);
+   cv::line(c_frame, vecOutputImagePoints[4], vecOutputImagePoints[5], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[5], vecOutputImagePoints[6], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[6], vecOutputImagePoints[7], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[7], vecOutputImagePoints[4], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
 
-   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[4], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[5], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[6], cv::Scalar(255,0,0), 2);
-   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[7], cv::Scalar(255,0,0), 2);
+   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[4], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[5], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[6], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[7], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
 }
 
 /****************************************/

@@ -19,7 +19,8 @@ public:
                         const SBlock& s_block,
                         const cv::Matx33f& c_camera_matrix,
                         const cv::Vec4f& c_distortion_parameters,
-                        const std::string& s_text = "");
+                        const std::string& s_text = "",
+                        bool b_draw_thick = true);
 
    static void Annotate(cv::Mat& c_frame,
                         const STarget& s_target,
