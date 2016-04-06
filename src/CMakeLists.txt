@@ -5,6 +5,9 @@ project(blocktracker)
 # Set the module path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/")
 
+# Set debug build
+set(CMAKE_BUILD_TYPE Debug)
+
 include_directories("./argos3")
 
 # Find dependencies

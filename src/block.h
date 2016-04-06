@@ -1,9 +1,13 @@
 #ifndef BLOCK_H
 #define BLOCK_H
 
+#include <chrono>
+
 #include "tag.h"
 
 struct SBlock {
+   /* Timestamp marking when the block was detected */
+   std::chrono::time_point<std::chrono::steady_clock> Timestamp;
    /* Set of tags used to identify the block */
    std::vector<STag> Tags;
    /* Block 2D coordinates in frame */
@@ -19,6 +23,8 @@ struct SBlock {
    } Rotation;
    /* Hack - remove me */
    std::vector<STag> HackTags;
+   /* Flag whether block is real or simulated */
+   bool IsPseudo = false;
 };
 
 #endif

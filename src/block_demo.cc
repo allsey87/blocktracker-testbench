@@ -88,13 +88,11 @@ int main(int n_arg_count, char* ppch_args[]) {
    CBlockSensor* m_pcBlockSensor =
       new CBlockSensor;
    CBlockTracker* m_pcBlockTracker =
-      new CBlockTracker(640u, 360u, 10u, 10u, 0.5f, 5.0f);
+      new CBlockTracker(640u, 360u, 3u, 3u, 0.5f, 4.5f);
       
    cv::namedWindow("Input Frame");
    cv::namedWindow("Block Detector Output");
-
    cv::moveWindow("Input Frame", 1975, 50);
-
    cv::moveWindow("Block Detector Output", 1975, 500);
  
    for(;;) {
@@ -113,9 +111,9 @@ int main(int n_arg_count, char* ppch_args[]) {
             s_loaded_image.ImageData.row(un_row).data,
             ptImageY->width);
          }         
-
+         /* Detect blocks */
          m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, lstDetectedBlocks);
-         
+         /* Deallocate the apriltags image */
          image_u8_destroy(ptImageY);
 
          cv::Mat cAnnotatedImage;
@@ -135,7 +133,7 @@ int main(int n_arg_count, char* ppch_args[]) {
 
          // pass the time in miliseconds to track targets to allow for protectile based matching
 
-         m_pcBlockTracker->AssociateAndTrackTargets(lstDetectedBlocks, lstTrackedTargets);
+         m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, lstDetectedBlocks, lstTrackedTargets);
 
          for(const STarget& s_target : lstTrackedTargets) {
             std::ostringstream cText;
@@ -146,7 +144,8 @@ int main(int n_arg_count, char* ppch_args[]) {
                                       s_target,
                                       m_pcBlockSensor->GetCameraMatrix(),
                                       m_pcBlockSensor->GetDistortionParameters(),
-                                      cText.str());
+                                      cText.str(),
+                                      tReferenceTime);
          }
          cv::imshow("Block Detector Output", cAnnotatedImage);
 
@@ -174,7 +173,9 @@ int main(int n_arg_count, char* ppch_args[]) {
          */
 
          /* delay */
-         cv::waitKey(150);
+         if(cv::waitKey(0) == 'q') {
+            break;
+         }
       }
       if(cv::waitKey(0) == 'q') {
          break;

@@ -51,6 +51,13 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
    cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[5], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
    cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[6], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
    cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[7], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+
+   for(const STag& s_tag : s_block.Tags) {
+      Annotate(c_frame, s_tag);
+   }
+   for(const STag& s_tag : s_block.HackTags) {
+      Annotate(c_frame, s_tag);
+   }
 }
 
 /****************************************/
@@ -61,8 +68,8 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame, const STag& s_tag, const std::s
       cv::line(c_frame,
                cv::Point2f(s_tag.Corners[un_corner_idx].first, s_tag.Corners[un_corner_idx].second),
                cv::Point2f(s_tag.Corners[(un_corner_idx + 1) % 4].first, s_tag.Corners[(un_corner_idx + 1) % 4].second),
-               cv::Scalar(0,0,255),
-               2);
+               cv::Scalar(0,255,0),
+               1);
    }
    if(!s_text.empty()) {
       cv::putText(c_frame,
@@ -77,12 +84,22 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame, const STag& s_tag, const std::s
 
 /****************************************/
 /****************************************/
+#include <iomanip>
 
 void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const STarget& s_target,
                                const cv::Matx33f& c_camera_matrix,
                                const cv::Vec4f& c_distortion_parameters,
-                               const std::string& s_text) {
+                               const std::string& s_text,
+                               const std::chrono::time_point<std::chrono::steady_clock>& t_reference_time) {
+
+   std::cerr << "Target #" << s_target.Id << std::endl;   
+   std::cerr << "Frames Since Last Observation:" << s_target.FramesSinceLastObservation << std::endl;
+   std::cerr << "Observations: " << std::endl;
+   for(const SBlock& s_block : s_target.Observations) {
+      float fTimestamp = std::chrono::duration<float, std::milli>(s_block.Timestamp - t_reference_time).count();
+      std::cerr << fTimestamp << ": (" << std::setw(4) << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << ")" << (s_block.IsPseudo ? "'" : "") << std::endl;
+   }
 
    Annotate(c_frame,
             s_target.Observations.front(),
@@ -100,7 +117,7 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                   cv::Point2f(it_block->Coordinates.first, it_block->Coordinates.second),
                   cv::Point2f(itNextBlock->Coordinates.first, itNextBlock->Coordinates.second),
                   cv::Scalar(0,0,255),
-                  2);
+                  1);
       }
    }
    
@@ -110,9 +127,9 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                   cv::Point2f(std::begin(s_target.Observations)->Coordinates.first + 10,
                               std::begin(s_target.Observations)->Coordinates.second + 10),
                   cv::FONT_HERSHEY_SIMPLEX,
-                  1,
+                  0.5,
                   cv::Scalar(255,255,255),
-                  2);
+                  1);
    }
 }
 

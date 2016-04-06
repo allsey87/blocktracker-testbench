@@ -24,7 +24,8 @@ public:
       m_fAssociationRecursionRatio(f_association_recursion_ratio),
       m_fPixelToDistanceCoefficient(f_pixel_to_distance_coefficient) {}
 
-   void AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated_blocks,
+   void AssociateAndTrackTargets(std::chrono::time_point<std::chrono::steady_clock> t_timestamp,
+                                 std::list<SBlock>& lst_unassociated_blocks,
                                  std::list<STarget>& lst_targets);
 private:
 

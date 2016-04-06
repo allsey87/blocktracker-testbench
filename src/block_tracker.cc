@@ -3,8 +3,92 @@
 
 #include <iostream>
 
-void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated_blocks,
+
+   /* 
+      if issues are occuring with blocks close to the robot moving faster (i.e. due to spot turn /
+      distance from robot) adjust the average velocity taking the distance of the block from
+      the robot into consideration (is it possible to estimate the angular/linear velocity of
+      the robot?) - possibly complicated! avoid if possible.
+   */
+
+
+
+void CBlockTracker::AssociateAndTrackTargets(std::chrono::time_point<std::chrono::steady_clock> t_timestamp,
+                                             std::list<SBlock>& lst_unassociated_blocks,
                                              std::list<STarget>& lst_targets) {
+   /* write the timestamps into each entry of lst_unassociated_blocks */
+   for(SBlock& s_block : lst_unassociated_blocks) {
+      s_block.Timestamp = t_timestamp;
+   }
+   /* predict velocities of targets, storing results as pseudo observations */
+   if(lst_targets.size() > 0u) {
+      /* estimates for the current camera velocity */
+      float fCameraVelocityEstimateX = 0.0f, fCameraVelocityEstimateY = 0.0f, fCameraVelocityEstimateZ = 0.0f;
+      float fCameraVelocityEstimateWeight = 0.0f;
+      /* calculate the current camera velocity */
+      for(STarget& s_target : lst_targets) {
+         if(s_target.Observations.size() > 1u) {
+            auto itMostRecentObservation = std::begin(s_target.Observations);
+            auto itSecondMostRecentObservation = std::next(itMostRecentObservation);
+            float fDelta = std::chrono::duration<float>(t_timestamp - itSecondMostRecentObservation->Timestamp).count();
+            float fWeight = 1.0f / fDelta;
+            fCameraVelocityEstimateWeight += fWeight;
+            fCameraVelocityEstimateX += ((itMostRecentObservation->Translation.X - itSecondMostRecentObservation->Translation.X) / fDelta) * fWeight;
+            fCameraVelocityEstimateY += ((itMostRecentObservation->Translation.Y - itSecondMostRecentObservation->Translation.Y) / fDelta) * fWeight;
+            fCameraVelocityEstimateZ += ((itMostRecentObservation->Translation.Z - itSecondMostRecentObservation->Translation.Z) / fDelta) * fWeight;
+         }
+      }
+      /* update the average camera velocity */
+      if(fCameraVelocityEstimateWeight != 0.0f) {
+         fCameraVelocityEstimateX /= fCameraVelocityEstimateWeight;
+         fCameraVelocityEstimateY /= fCameraVelocityEstimateWeight;
+         fCameraVelocityEstimateZ /= fCameraVelocityEstimateWeight;
+      }
+      float fCameraVelocityEstimateAverageWeight = fCameraVelocityEstimateWeight / static_cast<float>(lst_targets.size());
+      /* estimate the velocities of the targets and create the observation */
+      for(STarget& s_target : lst_targets) {
+         auto itMostRecentObservation = std::begin(s_target.Observations);
+
+         float fTargetVelocityEstimateX = fCameraVelocityEstimateX * fCameraVelocityEstimateAverageWeight;
+         float fTargetVelocityEstimateY = fCameraVelocityEstimateY * fCameraVelocityEstimateAverageWeight;
+         float fTargetVelocityEstimateZ = fCameraVelocityEstimateZ * fCameraVelocityEstimateAverageWeight;
+         float fTargetVelocityWeight = 0.0f;
+
+         /* if there are two or more observations, compute an average velocity of the target */
+         if(s_target.Observations.size() > 1u) {
+            auto itSecondMostRecentObservation = std::next(itMostRecentObservation);
+            float fDelta = std::chrono::duration<float>(itMostRecentObservation->Timestamp - itSecondMostRecentObservation->Timestamp).count();
+            /* calculate the weight from delta */
+            fTargetVelocityWeight = 1.0f / fDelta;
+            fTargetVelocityEstimateX += ((itMostRecentObservation->Translation.X - itSecondMostRecentObservation->Translation.X) / fDelta) * fTargetVelocityWeight;
+            fTargetVelocityEstimateY += ((itMostRecentObservation->Translation.Y - itSecondMostRecentObservation->Translation.Y) / fDelta) * fTargetVelocityWeight;
+            fTargetVelocityEstimateZ += ((itMostRecentObservation->Translation.Z - itSecondMostRecentObservation->Translation.Z) / fDelta) * fTargetVelocityWeight;
+         }
+         /* calculate the target velocity estimate */
+         if((fCameraVelocityEstimateAverageWeight + fTargetVelocityWeight) != 0.0f) {
+            fTargetVelocityEstimateX /= (fCameraVelocityEstimateAverageWeight + fTargetVelocityWeight);
+            fTargetVelocityEstimateY /= (fCameraVelocityEstimateAverageWeight + fTargetVelocityWeight);
+            fTargetVelocityEstimateZ /= (fCameraVelocityEstimateAverageWeight + fTargetVelocityWeight);
+         }
+         /* Calculate the expected position of the target */
+         float fElapsedTime = std::chrono::duration<float>(t_timestamp - itMostRecentObservation->Timestamp).count();
+         float fTargetPseudoPositionX = itMostRecentObservation->Translation.X + fTargetVelocityEstimateX * fElapsedTime;
+         float fTargetPseudoPositionY = itMostRecentObservation->Translation.Y + fTargetVelocityEstimateY * fElapsedTime;
+         float fTargetPseudoPositionZ = itMostRecentObservation->Translation.Z + fTargetVelocityEstimateZ * fElapsedTime;
+         /* Add a pseudo observation using the default constructor */
+         s_target.Observations.emplace_front();
+         s_target.Observations.front().Translation.X = fTargetPseudoPositionX;
+         s_target.Observations.front().Translation.Y = fTargetPseudoPositionY;
+         s_target.Observations.front().Translation.Z = fTargetPseudoPositionZ;
+
+         s_target.Observations.front().RotationVector = itMostRecentObservation->RotationVector;
+         s_target.Observations.front().TranslationVector = itMostRecentObservation->TranslationVector;
+         s_target.Observations.front().Timestamp = t_timestamp;
+
+         s_target.Observations.front().IsPseudo = true;
+      }
+   }
+
    /* list for keeping track of associations between the blocks and the existing targets */
    std::list<SAssociation> lstAssociations, lstFinalAssociations;
    /* while we still have unassociated blocks or targets */
@@ -21,7 +105,6 @@ void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated
          for(std::list<STarget>::iterator itTrackedTarget = std::begin(lst_targets);
              itTrackedTarget != std::end(lst_targets);
              itTrackedTarget++) {
-            /* TODO: where there are two observations, use velocity matching approach */
             std::list<SBlock>::iterator itTrackedBlock = std::begin(itTrackedTarget->Observations);
             /* calculate the distance between this block and the tracked block */
             float fInterblockDist =
@@ -95,14 +178,17 @@ void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated
       /* undo the remaining associations */
       for(SAssociation& s_association : lstAssociations) {
          if(!s_association.ExistingTarget.empty()) {
-            lst_targets.splice(lst_targets.begin(), s_association.ExistingTarget);
+            lst_targets.splice(std::begin(lst_targets), s_association.ExistingTarget);
          }
          if(!s_association.CandidateBlock.empty()) {
-            lst_unassociated_blocks.splice(lst_unassociated_blocks.begin(), s_association.CandidateBlock);
+            lst_unassociated_blocks.splice(std::begin(lst_unassociated_blocks), s_association.CandidateBlock);
          }
       }
       lstAssociations.clear();
    } /* while(!lst_targets.empty() || !lst_unassociated_blocks.empty()) */
+   
+
+
    /* move the final associations back into the target list */
    for(SAssociation& s_association : lstFinalAssociations) {
       /* if association doesn't have a target, create one */
@@ -111,8 +197,12 @@ void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated
       }
       /* if a candidate block exists, move it into the target observations list */
       if(!s_association.CandidateBlock.empty()) {
-         std::begin(s_association.ExistingTarget)->FramesSinceLastObservation = 0;
          std::list<SBlock>& lstObservations = std::begin(s_association.ExistingTarget)->Observations;
+         /* this is an actual observation, remove any pseudo observations */
+         lstObservations.remove_if([](const SBlock& s_block) { return s_block.IsPseudo; });
+         /* reset the frames since last observation counter */
+         std::begin(s_association.ExistingTarget)->FramesSinceLastObservation = 0;           
+         /* add the observation */
          lstObservations.splice(std::begin(lstObservations), s_association.CandidateBlock);
          /* limit the number of observations to m_unTrackingDepth */
          while(lstObservations.size() > m_unTrackingDepth) {
@@ -127,6 +217,7 @@ void CBlockTracker::AssociateAndTrackTargets(std::list<SBlock>& lst_unassociated
          lst_targets.splice(std::begin(lst_targets), s_association.ExistingTarget);
       }
    }
+
    AssignIdentifiers(lst_targets);
 }
 
