@@ -13,15 +13,11 @@ public:
    CBlockTracker(unsigned int un_frame_width,
                  unsigned int un_frame_height,
                  unsigned int un_tracking_depth,
-                 unsigned int un_lost_target_threshold,
-                 float f_association_recursion_ratio,
                  float f_pixel_to_distance_coefficient) :
 
       m_unFrameWidth(un_frame_width),
       m_unFrameHeight(un_frame_height),
       m_unTrackingDepth(un_tracking_depth),
-      m_unLostTargetThreshold(un_lost_target_threshold),
-      m_fAssociationRecursionRatio(f_association_recursion_ratio),
       m_fPixelToDistanceCoefficient(f_pixel_to_distance_coefficient) {}
 
    void AssociateAndTrackTargets(std::chrono::time_point<std::chrono::steady_clock> t_timestamp,
@@ -31,22 +27,28 @@ private:
 
    struct SAssociation {
       SAssociation(float f_association_distance) :
-         AssociationDist(f_association_distance) {}
+         Distance(f_association_distance) {}
+
+      SAssociation(float f_association_distance,
+                   std::list<SBlock>::iterator it_block,
+                   std::list<STarget>::iterator it_target) :
+         Distance(f_association_distance),
+         CandidateBlock(it_block),
+         ExistingTarget(it_target) {}
       
-      std::list<STarget> ExistingTarget;
-      std::list<SBlock> CandidateBlock;
-      float AssociationDist;
+      std::list<SBlock>::iterator CandidateBlock;
+      std::list<STarget>::iterator ExistingTarget;
+      float Distance;
    };
 
    void AssignIdentifiers(std::list<STarget>& lst_targets);
 
-   float CalculateMinimumDistanceToFrame(const std::pair<float, float>& c_coordinates);
+   //float CalculateMinimumDistanceToFrame(const std::pair<float, float>& c_coordinates);
 
    unsigned int m_unFrameWidth;
    unsigned int m_unFrameHeight;
    unsigned int m_unTrackingDepth;
-   unsigned int m_unLostTargetThreshold;
-   float m_fAssociationRecursionRatio;
+   unsigned int m_unNextId = 0;
    float m_fPixelToDistanceCoefficient;
 
 };

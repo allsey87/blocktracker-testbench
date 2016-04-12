@@ -93,12 +93,16 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const std::string& s_text,
                                const std::chrono::time_point<std::chrono::steady_clock>& t_reference_time) {
 
-   std::cerr << "Target #" << s_target.Id << std::endl;   
-   std::cerr << "Frames Since Last Observation:" << s_target.FramesSinceLastObservation << std::endl;
-   std::cerr << "Observations: " << std::endl;
+   std::cerr << "Target #" << static_cast<int>(s_target.Id) << std::endl;   
+   std::cerr << "s_target.PseudoObservations.size():" << s_target.PseudoObservations.size() << std::endl;
+   for(const SBlock& s_block : s_target.PseudoObservations) {
+      float fTimestamp = std::chrono::duration<float, std::milli>(s_block.Timestamp - t_reference_time).count();
+      std::cerr << '\t' << fTimestamp << ": (" << std::setw(4) << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << ")" << std::endl;
+   }
+   std::cerr << "s_target.Observations.size():" << s_target.Observations.size() << std::endl;
    for(const SBlock& s_block : s_target.Observations) {
       float fTimestamp = std::chrono::duration<float, std::milli>(s_block.Timestamp - t_reference_time).count();
-      std::cerr << fTimestamp << ": (" << std::setw(4) << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << ")" << (s_block.IsPseudo ? "'" : "") << std::endl;
+      std::cerr << '\t' << fTimestamp << ": (" << std::setw(4) << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << ")" << std::endl;
    }
 
    Annotate(c_frame,

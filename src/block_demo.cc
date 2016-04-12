@@ -88,7 +88,7 @@ int main(int n_arg_count, char* ppch_args[]) {
    CBlockSensor* m_pcBlockSensor =
       new CBlockSensor;
    CBlockTracker* m_pcBlockTracker =
-      new CBlockTracker(640u, 360u, 3u, 3u, 0.5f, 4.5f);
+      new CBlockTracker(640u, 360u, 3u, 0.5f);
       
    cv::namedWindow("Input Frame");
    cv::namedWindow("Block Detector Output");
@@ -133,13 +133,13 @@ int main(int n_arg_count, char* ppch_args[]) {
 
          // pass the time in miliseconds to track targets to allow for protectile based matching
 
+         std::cerr << "lstDetectedBlocks.size() = " << lstDetectedBlocks.size() << std::endl;
          m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, lstDetectedBlocks, lstTrackedTargets);
+         std::cerr << "lstTrackedTargets.size() = " << lstTrackedTargets.size() << std::endl;
 
          for(const STarget& s_target : lstTrackedTargets) {
             std::ostringstream cText;
             cText << '[' << s_target.Id << ']';
-            
-         
             CFrameAnnotator::Annotate(cAnnotatedImage,
                                       s_target,
                                       m_pcBlockSensor->GetCameraMatrix(),

@@ -8,7 +8,8 @@
 
 struct STarget {     
    std::list<SBlock> Observations;
-   unsigned int FramesSinceLastObservation = 0;
+
+   std::list<SBlock> PseudoObservations;
 
    /* -1 represents no assigned identifier */
    unsigned int Id = -1;

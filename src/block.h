@@ -23,8 +23,6 @@ struct SBlock {
    } Rotation;
    /* Hack - remove me */
    std::vector<STag> HackTags;
-   /* Flag whether block is real or simulated */
-   bool IsPseudo = false;
 };
 
 #endif
