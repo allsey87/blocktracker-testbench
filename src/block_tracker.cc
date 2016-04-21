@@ -1,17 +1,8 @@
 
 #include "block_tracker.h"
+#include "hungarian_solver.h"
 
 #include <iostream>
-
-
-   /* 
-      if issues are occuring with blocks close to the robot moving faster (i.e. due to spot turn /
-      distance from robot) adjust the average velocity taking the distance of the block from
-      the robot into consideration (is it possible to estimate the angular/linear velocity of
-      the robot?) - possibly complicated! avoid if possible.
-   */
-
-
 
 void CBlockTracker::AssociateAndTrackTargets(std::chrono::time_point<std::chrono::steady_clock> t_timestamp,
                                              std::list<SBlock>& lst_unassociated_blocks,
@@ -104,111 +95,174 @@ void CBlockTracker::AssociateAndTrackTargets(std::chrono::time_point<std::chrono
       }
    }
 
-   /* list for keeping track of associations between the blocks and the existing targets */
-   std::list<SAssociation> lstCandidateAssociations, lstAssociations;
-   std::list<SBlock> lstAssociatedBlocks;
-   std::list<STarget> lstAssociatedTargets;
+   /* list of blocks that are don't correspond to any target */
+   std::list<SBlock> lstUnmatchedBlocks;
+   std::list<STarget> lstUnmatchedTargets;
+   std::list<STarget> lstNewTargets;
 
-   /* while we still have unassociated blocks */
-   while(!lst_unassociated_blocks.empty()) {
-      /* TODO: it is required that at least one target be present in this list or an assertion must be made that itClosestTrackedTarget != std::end(...) check condition above */
-      for(auto itUnassociatedBlock = std::begin(lst_unassociated_blocks);
-          itUnassociatedBlock != std::end(lst_unassociated_blocks);
-          itUnassociatedBlock++) {
-         /* compare the block to each target, keeping track of the target with the
-            minimum distance between itself and the block */
-         auto itClosestTrackedTarget = std::end(lst_targets);
-         float fClosestTrackedTargetDist = std::numeric_limits<float>::max();
-         /* select the closest target to the block */
-         for(auto itTrackedTarget = std::begin(lst_targets);
-             itTrackedTarget != std::end(lst_targets);
-             itTrackedTarget++) {
-            auto itTrackedBlock = std::begin(itTrackedTarget->PseudoObservations);
-            /* calculate the distance between this block and the tracked block */
-            float fInterblockDist =
-               std::sqrt(std::pow(itTrackedBlock->Translation.X - itUnassociatedBlock->Translation.X, 2) +
-                         std::pow(itTrackedBlock->Translation.Y - itUnassociatedBlock->Translation.Y, 2) +
-                         std::pow(itTrackedBlock->Translation.Z - itUnassociatedBlock->Translation.Z, 2));
-            if(fInterblockDist < fClosestTrackedTargetDist) {
-               itClosestTrackedTarget = itTrackedTarget;
-               fClosestTrackedTargetDist = fInterblockDist;
-            }
-         } /* for each target */
-         lstCandidateAssociations.emplace_back(fClosestTrackedTargetDist, itUnassociatedBlock, itClosestTrackedTarget);
-      } /* for each block */
-      
-      /* find candidate associations without targets or targets with an association distance that exceeds the threshold */
-      for(auto itAssociation = std::begin(lstCandidateAssociations);
-          itAssociation != std::end(lstCandidateAssociations);
-          itAssociation++) {
-         /* note: if lst_targets was empty, itFirstAssociation->Distance == std::numeric_limits<float>::max() */
-         if(itAssociation->Distance > 0.1f) { // 10cm
-            /* create a new target */
-            itAssociation->ExistingTarget = lst_targets.emplace(std::end(lst_targets));
-            /* note: this is a special and an unique target created for this association. As it is unique it 
-               passes through the duplicates check and is moved into the lstAssociatedTargets as to not be
-               reassigned to a different block */
-         }
-      }
-   
-      /* mark duplicates for removal (keeping the better match) */
-      for(auto itFirstAssociation = std::begin(lstCandidateAssociations);
-          itFirstAssociation != std::end(lstCandidateAssociations);
-          itFirstAssociation++) {
-         for(auto itSecondAssociation = std::begin(lstCandidateAssociations);
-             itSecondAssociation != std::end(lstCandidateAssociations);
-             itSecondAssociation++) {
-            /* don't compare candidate associations with themselves */
-            if(itFirstAssociation == itSecondAssociation) {
-               continue;
-            }
-            else {
-               /* if two candidate associations have the same target */
-               if(itFirstAssociation->ExistingTarget == itSecondAssociation->ExistingTarget) {
-                  /* keep the association with the smallest distance */
-                  if(itFirstAssociation->Distance < itSecondAssociation->Distance) {
-                     itSecondAssociation->ExistingTarget = std::end(lst_targets);
-                  }
-                  else {
-                     itFirstAssociation->ExistingTarget = std::end(lst_targets);
-                  }
-               }
-            }
-         }
-      }
-      /* remove the duplicates from the candidate association list */
-      lstCandidateAssociations.remove_if([&lst_targets](const SAssociation& s_association) {
-         return (s_association.ExistingTarget == std::end(lst_targets));
-      });
-      /* remove the associated blocks and targets from the unassociated lists */
-      for(SAssociation& s_association : lstCandidateAssociations) {
-         /* note: during these operations the iterators CandidateBlock and ExistingTarget should not be invalidated */
-         lstAssociatedBlocks.splice(std::end(lstAssociatedBlocks), lst_unassociated_blocks, s_association.CandidateBlock);
-         lstAssociatedTargets.splice(std::end(lstAssociatedTargets), lst_targets, s_association.ExistingTarget);
-      }
-      /* move the candidate associations into the association list */
-      lstAssociations.splice(std::end(lstAssociations), lstCandidateAssociations);
-   } /* while (!lst_unassociated_blocks.empty()) */
-   
-   /* rebuild the list of targets adding observations */
-   for(SAssociation& s_association : lstAssociations) {
-      std::list<SBlock>& lstTargetObservations = s_association.ExistingTarget->Observations;
-      std::list<SBlock>& lstTargetPseudoObservations = s_association.ExistingTarget->PseudoObservations;
-      /* since we have a new observation, we can clear the pseudo observations */
-      lstTargetPseudoObservations.clear();
-      lstTargetObservations.splice(std::begin(lstTargetObservations), lstAssociatedBlocks, s_association.CandidateBlock);
-      while(lstTargetObservations.size() > m_unTrackingDepth) {
-         lstTargetObservations.pop_back();
+   /* build a cost matrix */
+   CHungarianSolver::TCostMatrix tCostMatrix(lst_unassociated_blocks.size(), std::vector<double>(lst_targets.size(), 0.0f));
+   unsigned int n_target_idx = 0u;
+   auto it_target = std::begin(lst_targets);
+   for(; it_target != std::end(lst_targets); n_target_idx++, it_target++) {
+      unsigned int n_block_idx = 0u;
+      auto it_block = std::begin(lst_unassociated_blocks);
+      for(; it_block != std::end(lst_unassociated_blocks); n_block_idx++, it_block++) {
+         // Cost matrix is blocks x targets
+         const SBlock& sTrackedBlock = it_target->PseudoObservations.front();
+
+         tCostMatrix[n_block_idx][n_target_idx] = std::sqrt(std::pow(sTrackedBlock.Translation.X - it_block->Translation.X, 2) +
+                                                            std::pow(sTrackedBlock.Translation.Y - it_block->Translation.Y, 2) +
+                                                            std::pow(sTrackedBlock.Translation.Z - it_block->Translation.Z, 2));
       }
    }
 
-   /* remove targets that have had no observations for the last m_unTrackingDepth rounds */
+   /* remove rows from the cost matrix that exceed the distance threshold */
+   std::list<unsigned int> lstRowsIndicesToRemove;
+   for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+      bool bRowExceedsThreshold = true;
+      for(auto it_el = std::begin(*it_row); it_el != std::end(*it_row); it_el++) {
+         bRowExceedsThreshold = bRowExceedsThreshold && (*it_el > m_fDistanceThreshold);
+      }
+      if(bRowExceedsThreshold) {
+         /* add this row to the list for removal */
+         lstRowsIndicesToRemove.push_front(std::distance(std::begin(tCostMatrix), it_row));
+      }
+   }
+   /* remove rows / move unmatched blocks to unmatched list  */
+   for(unsigned int un_idx : lstRowsIndicesToRemove) {
+      auto it_erase = std::begin(tCostMatrix);
+      std::advance(it_erase, un_idx);
+      tCostMatrix.erase(it_erase);
+      /* move the unassociated block into the unmatched list */
+      auto it_move = std::begin(lst_unassociated_blocks);
+      std::advance(it_move, un_idx);
+      lstUnmatchedBlocks.splice(std::begin(lstUnmatchedBlocks), lst_unassociated_blocks, it_move);
+   }
+   
+   /* remove columns from the cost matrix that exceed the distance threshold */
+   /* check if matrix has at least 1 row */
+   if(tCostMatrix.size() > 0) {
+      unsigned int unColumnCount = tCostMatrix[0].size();
+      std::list<unsigned int> lstColumnIndicesToRemove;
+      for(unsigned int un_col = 0; un_col < unColumnCount; un_col++) {
+         bool bColExceedsThreshold = true;
+         for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+            auto it_el = std::begin(*it_row);     
+            std::advance(it_el, un_col);
+            bColExceedsThreshold = bColExceedsThreshold && (*it_el > m_fDistanceThreshold);
+         }
+         if(bColExceedsThreshold) {
+            lstColumnIndicesToRemove.push_front(un_col);
+         }
+      }
+      for(auto un_idx : lstColumnIndicesToRemove) {
+         for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+            auto it_col_el = std::begin(*it_row);
+            std::advance(it_col_el, un_idx);
+            it_row->erase(it_col_el);
+         }
+         /* move unassociated target into the unmatched list */
+         auto it_move = std::begin(lst_targets);
+         std::advance(it_move, un_idx);
+         lstUnmatchedTargets.splice(std::begin(lstUnmatchedTargets), lst_targets, it_move);
+      }
+   }      
+
+   /* adjust individual elements that exceed m_fDistanceThreshold */
+   for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+      for(auto it_el = std::begin(*it_row); it_el != std::end(*it_row); it_el++) {
+         *it_el = (*it_el < m_fDistanceThreshold) ? *it_el : std::max(lst_targets.size(), lst_unassociated_blocks.size()) * m_fDistanceThreshold;
+      }
+   }
+
+   /* zero pad the cost matrix until it is square */
+   unsigned int unRowCount = tCostMatrix.size();
+   unsigned int unColCount = (unRowCount > 0) ? tCostMatrix[0].size() : 0;
+
+   if(unRowCount > unColCount) {
+      /* add columns */
+      for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+         it_row->insert(std::end(*it_row), unRowCount - unColCount, 0.0f);
+      }
+   }
+
+   if(unColCount > unRowCount) {
+      /* add rows */
+      tCostMatrix.insert(std::end(tCostMatrix), unColCount - unRowCount, std::vector<double>(unColCount, 0.0f));
+   }
+
+   /* negate all elements such that we solve for the minimum */
+   for(auto it_row = std::begin(tCostMatrix); it_row != std::end(tCostMatrix); it_row++) {
+      for(auto it_el = std::begin(*it_row); it_el != std::end(*it_row); it_el++) {
+         *it_el = -(*it_el);
+      }
+   }
+
+   /* create instance of the solver */
+   CHungarianSolver CHungarianSolver;
+   /* run the solver on the cost matrix */   
+   CHungarianSolver(tCostMatrix);
+   /* get the indices of the blocks and targets to be assigned */
+   std::vector<std::pair<int, int> > vecAssignmentIndices = CHungarianSolver.GetAssignments();
+
+   /* schedule all */
+   std::list<std::pair<std::list<SBlock>::iterator, std::list<STarget>::iterator> > lstScheduledAssignments;
+
+   for(const auto& t_assignment : vecAssignmentIndices) {
+      bool bBlockExists = (t_assignment.first < lst_unassociated_blocks.size());
+      bool bTargetExists = (t_assignment.second < lst_targets.size());
+
+      if(bBlockExists) {
+         auto itBlock = std::begin(lst_unassociated_blocks);
+         std::advance(itBlock, t_assignment.first);
+         if(bTargetExists) {
+            auto itTarget = std::begin(lst_targets);
+            std::advance(itTarget, t_assignment.second);
+            // clear itTarget->pseudoObservations ??
+            lstScheduledAssignments.push_front(std::make_pair(itBlock, itTarget));
+         }
+         else  {
+            /* create a new target */
+            lstNewTargets.emplace_front();
+            /* schedule the assignment */
+            lstScheduledAssignments.push_front(std::make_pair(itBlock, std::begin(lstNewTargets)));
+         }
+      }
+      else {
+         // !bBlockExists
+         // do nothing? PseudoTargets already increased due to first part of algorithm
+      }
+   }
+
+   /* do the assignments */
+   for(auto& c_scheduled_assignment : lstScheduledAssignments) {
+      std::list<SBlock>& sObservationList = c_scheduled_assignment.second->Observations;
+      sObservationList.splice(std::begin(sObservationList), lst_unassociated_blocks, c_scheduled_assignment.first);
+      /* clear pseudo observations */
+      c_scheduled_assignment.second->PseudoObservations.clear();
+      /* limit the number of observations to m_unTrackingDepth */
+      while(c_scheduled_assignment.second->Observations.size() > m_unTrackingDepth) {
+         c_scheduled_assignment.second->Observations.pop_back();
+      }
+   }
+
+   //lstUnmatchedBlocks - create targets and assign
+   while(!lstUnmatchedBlocks.empty()) {
+      auto itUnmatchedBlock = std::begin(lstUnmatchedBlocks);
+      lstNewTargets.emplace_front();
+      std::list<SBlock>& sObservationList = std::begin(lstNewTargets)->Observations;
+      sObservationList.splice(std::begin(sObservationList), lstUnmatchedBlocks, itUnmatchedBlock);  
+   }
+
+   /* move all targets back to main list */
+   lst_targets.splice(std::begin(lst_targets), lstNewTargets);
+   lst_targets.splice(std::begin(lst_targets), lstUnmatchedTargets);
+   
+   /* clear targets with pseudo count higher than tracking threshold */
    lst_targets.remove_if([this] (const STarget& s_target) {
       return (s_target.PseudoObservations.size() > m_unTrackingDepth);
    });
-
-   /* move all lstAssociatedTargets back into lst_targets */
-   lst_targets.splice(std::begin(lst_targets), lstAssociatedTargets);
 
    /* assign indentifiers */
    AssignIdentifiers(lst_targets);

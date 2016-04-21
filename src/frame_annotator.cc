@@ -16,6 +16,7 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const cv::Matx33f& c_camera_matrix,
                                const cv::Vec4f& c_distortion_parameters,
                                const std::string& s_text,
+                               const cv::Scalar& c_color,
                                bool b_draw_thick) {
    /* project points is checking correctness */
    std::vector<cv::Point3f> vecInputTargetPoints;
@@ -37,20 +38,20 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                      c_distortion_parameters,
                      vecOutputImagePoints);
 
-   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[1], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[2], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[3], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[0], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[1], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[2], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[3], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[0], c_color, b_draw_thick ? 2 : 1);
 
-   cv::line(c_frame, vecOutputImagePoints[4], vecOutputImagePoints[5], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[5], vecOutputImagePoints[6], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[6], vecOutputImagePoints[7], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[7], vecOutputImagePoints[4], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[4], vecOutputImagePoints[5], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[5], vecOutputImagePoints[6], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[6], vecOutputImagePoints[7], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[7], vecOutputImagePoints[4], c_color, b_draw_thick ? 2 : 1);
 
-   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[4], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[5], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[6], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
-   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[7], cv::Scalar(255,0,0), b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[0], vecOutputImagePoints[4], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[1], vecOutputImagePoints[5], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[2], vecOutputImagePoints[6], c_color, b_draw_thick ? 2 : 1);
+   cv::line(c_frame, vecOutputImagePoints[3], vecOutputImagePoints[7], c_color, b_draw_thick ? 2 : 1);
 
    for(const STag& s_tag : s_block.Tags) {
       Annotate(c_frame, s_tag);
@@ -68,7 +69,7 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame, const STag& s_tag, const std::s
       cv::line(c_frame,
                cv::Point2f(s_tag.Corners[un_corner_idx].first, s_tag.Corners[un_corner_idx].second),
                cv::Point2f(s_tag.Corners[(un_corner_idx + 1) % 4].first, s_tag.Corners[(un_corner_idx + 1) % 4].second),
-               cv::Scalar(0,255,0),
+               cv::Scalar(0,0,0),
                1);
    }
    if(!s_text.empty()) {
@@ -77,7 +78,7 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame, const STag& s_tag, const std::s
                   cv::Point2f(s_tag.Center.first + 10, s_tag.Center.second + 10),
                   cv::FONT_HERSHEY_SIMPLEX,
                   1,
-                  cv::Scalar(255,0,0),
+                  cv::Scalar(0,0,0),
                   2);
    }
 }
@@ -91,8 +92,10 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
                                const cv::Matx33f& c_camera_matrix,
                                const cv::Vec4f& c_distortion_parameters,
                                const std::string& s_text,
-                               const std::chrono::time_point<std::chrono::steady_clock>& t_reference_time) {
+                               const cv::Scalar& c_color) {
+                               //const std::chrono::time_point<std::chrono::steady_clock>& t_reference_time) {
 
+   /*
    std::cerr << "Target #" << static_cast<int>(s_target.Id) << std::endl;   
    std::cerr << "s_target.PseudoObservations.size():" << s_target.PseudoObservations.size() << std::endl;
    for(const SBlock& s_block : s_target.PseudoObservations) {
@@ -104,15 +107,44 @@ void CFrameAnnotator::Annotate(cv::Mat& c_frame,
       float fTimestamp = std::chrono::duration<float, std::milli>(s_block.Timestamp - t_reference_time).count();
       std::cerr << '\t' << fTimestamp << ": (" << std::setw(4) << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << ")" << std::endl;
    }
+   */
 
-   Annotate(c_frame,
-            s_target.Observations.front(),
-            c_camera_matrix,
-            c_distortion_parameters);
+   SBlock sBlock = s_target.Observations.front();
+   if(s_target.PseudoObservations.size() != 0) {
+      const SBlock& sPseudoBlock = s_target.PseudoObservations.front();
+      float pfPesudoTranslation[] = {sPseudoBlock.Translation.X, sPseudoBlock.Translation.Y, sPseudoBlock.Translation.Z};
+      sBlock.TranslationVector = cv::Mat(3, 1, CV_32F, pfPesudoTranslation);
+      sBlock.Tags.clear();
+      sBlock.HackTags.clear();
+
+      Annotate(c_frame,
+               sBlock,
+               c_camera_matrix,
+               c_distortion_parameters,
+               "",
+               c_color,
+               false);
+
+   }
+   else {
+      Annotate(c_frame,
+               sBlock,
+               c_camera_matrix,
+               c_distortion_parameters,
+               "",
+               c_color,
+               true);
+   }
+
             
    for(std::list<SBlock>::const_iterator it_block = std::begin(s_target.Observations);
        it_block != std::end(s_target.Observations);
        it_block++) {
+
+      cv::circle(c_frame, 
+                 cv::Point2f(it_block->Coordinates.first, it_block->Coordinates.second),
+                 2.5f,
+                 cv::Scalar(0,0,255));
 
       std::list<SBlock>::const_iterator itNextBlock = std::next(it_block);
                

@@ -22,6 +22,7 @@ add_executable(blocktracker
                block_sensor.cc
                block_tracker.cc
                frame_annotator.cc
+               hungarian_solver.cc               
                tag.cc
                argos3/core/utility/math/vector3.cpp
                argos3/core/utility/math/angles.cpp
