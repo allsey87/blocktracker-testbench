@@ -33,6 +33,10 @@ public:
                         const cv::Scalar& c_color = cv::Scalar(0,0,0));                      
                         //const std::chrono::time_point<std::chrono::steady_clock>& t_reference_time = std::chrono::time_point<std::chrono::steady_clock>());
 
+   static void Label(cv::Mat& c_frame,
+                     const cv::Point2f& c_origin,
+                     const std::string& str_text);
+
 };
 
 

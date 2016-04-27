@@ -24,11 +24,14 @@ add_executable(blocktracker
                frame_annotator.cc
                hungarian_solver.cc               
                tag.cc
-               argos3/core/utility/math/vector3.cpp
                argos3/core/utility/math/angles.cpp
-               argos3/core/utility/math/matrix/rotationmatrix3.cpp)
+               argos3/core/utility/math/vector3.cpp
+               argos3/core/utility/math/matrix/rotationmatrix3.cpp
+               argos3/core/utility/math/matrix/transformationmatrix3.cpp)
 
 set_property(TARGET blocktracker PROPERTY CXX_STANDARD 11)
+
+message("AprilTag_LIB = ${AprilTag_LIB}")
 
 target_link_libraries(blocktracker ${AprilTag_LIB} ${OpenCV_LIBS})
 install(TARGETS blocktracker DESTINATION bin)

@@ -22,6 +22,10 @@
 #include "block_sensor.h"
 #include "frame_annotator.h"
 
+#include <argos3/core/utility/math/matrix/rotationmatrix3.h>
+#include <argos3/core/utility/math/quaternion.h>
+#include <argos3/core/utility/math/angles.h>
+
 /****************************************/
 /****************************************/
 
@@ -33,6 +37,52 @@ namespace std {
       }
    };
 }
+
+std::ostream& operator<<(std::ostream& c_stream, const SBlock& s_block) {
+   auto tInitFlags = c_stream.flags();
+   auto tInitPrec = c_stream.precision();
+   c_stream.setf(std::ios::fixed);
+   c_stream.precision(3);
+   c_stream << "T["
+            << s_block.Translation.X << ", "
+            << s_block.Translation.Y << ", "
+            << s_block.Translation.Z << "]"
+            << '\t';
+   c_stream << "R["
+            << (s_block.Rotation.Z * 180.0f) / M_PI << ", "
+            << (s_block.Rotation.Y * 180.0f) / M_PI << ", "
+            << (s_block.Rotation.X * 180.0f) / M_PI << "]";
+   c_stream.flags(tInitFlags);
+   c_stream.precision(tInitPrec);
+   return c_stream;
+}
+
+std::ostream& print_matrix(std::ostream& c_stream, const cv::Mat& c_cv_matrix) {
+   auto tInitFlags = c_stream.flags();
+   auto tInitPrec = c_stream.precision();
+   
+   c_stream.setf(std::ios::fixed);
+   c_stream.precision(2);
+
+   for(int i = 0; i < c_cv_matrix.size().height; i++) {
+      c_stream << "[";
+      for(int j = 0; j < c_cv_matrix.size().width; j++) {
+         c_stream << c_cv_matrix.at<double>(i,j);
+         if(j != c_cv_matrix.size().width - 1) {
+            c_stream << ", ";
+         }
+         else {
+            c_stream << "]" << std::endl;
+         }
+      }
+   }
+
+   c_stream.flags(tInitFlags);
+   c_stream.precision(tInitPrec);   
+
+   return c_stream;
+}
+
 
 struct SLoadedImage {
    std::string FilePath;
@@ -137,10 +187,14 @@ int main(int n_arg_count, char* ppch_args[]) {
          /* Detect blocks */
          m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, lstDetectedBlocks);
          /* Deallocate the apriltags image */
+         cv::Mat temp(ptImageY->height, ptImageY->width, CV_8UC1, ptImageY->buf, ptImageY->stride);
+         cv::Mat cAnnotatedImage;
+         cv::cvtColor(temp, cAnnotatedImage, CV_GRAY2BGR);
+
          image_u8_destroy(ptImageY);
 
-         cv::Mat cAnnotatedImage;
-         cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
+         //cv::Mat cAnnotatedImage;
+         //cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
          
          /*
          unsigned int unBlockId = 0;
@@ -153,6 +207,13 @@ int main(int n_arg_count, char* ppch_args[]) {
             unBlockId++;
          }
          */
+         for(const SBlock& s_block : lstDetectedBlocks)
+            CFrameAnnotator::Annotate(cAnnotatedImage,
+                                      s_block,
+                                      m_pcBlockSensor->GetCameraMatrix(),
+                                      m_pcBlockSensor->GetDistortionParameters());
+
+
 
          // pass the time in miliseconds to track targets to allow for protectile based matching
          m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, lstDetectedBlocks, lstTrackedTargets);
@@ -168,9 +229,9 @@ int main(int n_arg_count, char* ppch_args[]) {
                                       tReferenceTime);
          }
          */
-         float fTimestamp = std::chrono::duration<float, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count();
+         double fTimestamp = std::chrono::duration<double, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count();
 
-         float m_fConnectivityThreshold = 0.055f * 1.25f; // 1.25 block distances
+         double m_fConnectivityThreshold = 0.055f * 1.25f; // 1.25 block distances
 
          using TTargetIterator = std::list<STarget>::iterator;
 
@@ -203,42 +264,138 @@ int main(int n_arg_count, char* ppch_args[]) {
                }
             }
          }
-   
-         /* display the connectivity */
+
+         auto itRootTarget = std::end(lstTrackedTargets);
+
          for(auto it_target = std::begin(lstTrackedTargets);
              it_target != std::end(lstTrackedTargets);
              it_target++) {
-
-            cv::Scalar cColor;
-            switch(mapTargetConnectivity.count(it_target)) {
-               case 0:
-                  cColor = cv::Scalar(255,0,0);
-                  break;
-               case 1:
-                  cColor = cv::Scalar(0,255,0);
-                  break;
-               case 2:
-                  cColor = cv::Scalar(0,0,255);
-                  break;
-               default:
-                  cColor = cv::Scalar(0,255,255);
-                  break;
+            if(mapTargetConnectivity.count(it_target) >= mapTargetConnectivity.count(itRootTarget)) {
+               itRootTarget = it_target;
             }
-            std::ostringstream cText;
-            cText << '[' << it_target->Id << ']';
-            CFrameAnnotator::Annotate(cAnnotatedImage,
-                                      *it_target,
-                                      m_pcBlockSensor->GetCameraMatrix(),
-                                      m_pcBlockSensor->GetDistortionParameters(),
-                                      cText.str(),
-                                      cColor);
-
          }
 
+         if(itRootTarget != std::end(lstTrackedTargets)) {
+            CFrameAnnotator::Annotate(cAnnotatedImage,
+                                         *itRootTarget,
+                                         m_pcBlockSensor->GetCameraMatrix(),
+                                         m_pcBlockSensor->GetDistortionParameters(),
+                                         "[R]",
+                                         cv::Scalar(0,255,255));
          
+            /* build the transformation matrix */
+            cv::Mat cRootTargetTransform = cv::Mat::zeros(4, 4, CV_64F);
+
+            const SBlock& sRootTargetBlock = itRootTarget->Observations.front();
+
+            cRootTargetTransform.at<double>(0, 3) = sRootTargetBlock.Translation.X;
+            cRootTargetTransform.at<double>(1, 3) = sRootTargetBlock.Translation.Y;
+            cRootTargetTransform.at<double>(2, 3) = sRootTargetBlock.Translation.Z;
+            cRootTargetTransform.at<double>(3, 3) = 1.0f;
+
+            argos::CRadians pcRootTargetEulerAngles[] = {
+               argos::CRadians(sRootTargetBlock.Rotation.Z),
+               argos::CRadians(sRootTargetBlock.Rotation.Y),
+               argos::CRadians(sRootTargetBlock.Rotation.X),
+            };
+
+            argos::CQuaternion cRootTargetRotationQuaternion;
+            cRootTargetRotationQuaternion.FromEulerAngles(pcRootTargetEulerAngles[0],
+                                                          pcRootTargetEulerAngles[1],
+                                                          pcRootTargetEulerAngles[2]);
+            argos::CRotationMatrix3 cRootTargetRotationMatrix(cRootTargetRotationQuaternion);
+
+            /* copy rotation matrix values */
+            cv::Mat(3, 3, CV_64F, &cRootTargetRotationMatrix(0,0)).copyTo(cRootTargetTransform(cv::Rect(0,0,3,3)));
+
+            // For each other target, rebuild the cv translation and rotation vectors
+            // use cv::RTCompose to add the transforms of the other targets to the inverse of the root target
+            // print out coordinates x,y,z - hopefully, they should be combinations of +/-1
+
+            /* 
+
+            cv::Mat cRootTargetInvRotationVector, cRootTargetInvTranslationVector;
+            cv::Rodrigues(cRootTargetInvTransform(cv::Rect(0,0,3,3)), cRootTargetInvRotationVector);
+            cRootTargetInvTranslationVector = cRootTargetInvTransform(cv::Rect(3,0,1,3));
+
+            */
+            
+            /* display the connectivity */
+            for(auto it_target = std::begin(lstTrackedTargets);
+                it_target != std::end(lstTrackedTargets);
+                it_target++) {
+         
+               if(it_target == itRootTarget) {
+                  continue;
+               }
+
+               cv::Mat cTargetTransform = cv::Mat::zeros(4, 4, CV_64F);
+
+               const SBlock& sTargetBlock = it_target->Observations.front();
+
+               cTargetTransform.at<double>(0, 3) = sTargetBlock.Translation.X;
+               cTargetTransform.at<double>(1, 3) = sTargetBlock.Translation.Y;
+               cTargetTransform.at<double>(2, 3) = sTargetBlock.Translation.Z;
+               cTargetTransform.at<double>(3, 3) = 1.0f;
+
+               argos::CRadians pcTargetEulerAngles[] = {
+                  argos::CRadians(sTargetBlock.Rotation.Z),
+                  argos::CRadians(sTargetBlock.Rotation.Y),
+                  argos::CRadians(sTargetBlock.Rotation.X),
+               };
+
+               argos::CQuaternion cTargetRotationQuaternion;
+               cTargetRotationQuaternion.FromEulerAngles(pcTargetEulerAngles[0],
+                                                         pcTargetEulerAngles[1],
+                                                         pcTargetEulerAngles[2]);
+               argos::CRotationMatrix3 cTargetRotationMatrix(cTargetRotationQuaternion);
+
+               /* copy rotation matrix values */
+               cv::Mat(3, 3, CV_64F, &cTargetRotationMatrix(0,0)).copyTo(cTargetTransform(cv::Rect(0,0,3,3)));
+
+               cv::Mat cTargetRelativeTransform = cRootTargetTransform.inv() * cTargetTransform;
+
+               //std::cout << "Target " << it_target->Id << std::endl;
+               //std::cout << sTargetBlock << std::endl;
+               //print_matrix(std::cout, cTargetRelativeTransform);
+
+               double fBlockWidth = 0.055f;
+               std::ostringstream cCoords;
+
+               cCoords << std::round(cTargetRelativeTransform.at<double>(0, 3) / fBlockWidth) << ", ";
+               cCoords << std::round(cTargetRelativeTransform.at<double>(1, 3) / fBlockWidth) << ", ";
+               cCoords << std::round(cTargetRelativeTransform.at<double>(2, 3) / fBlockWidth);
+
+               cv::Scalar cColor;
+               switch(mapTargetConnectivity.count(it_target)) {
+                  case 0:
+                     cColor = cv::Scalar(255,0,0);
+                     break;
+                  case 1:
+                     cColor = cv::Scalar(0,255,0);
+                     break;
+                  default:
+                     cColor = cv::Scalar(0,0,255);
+                     break;
+               }
+               /*
+               std::ostringstream cText;
+               cText << '[' << cCoords.str() << ']';
+               CFrameAnnotator::Annotate(cAnnotatedImage,
+                                         *it_target,
+                                         m_pcBlockSensor->GetCameraMatrix(),
+                                         m_pcBlockSensor->GetDistortionParameters(),
+                                         cText.str(),
+                                         cColor);
+
+               */
+
+            }
+         }
+                  
          cv::Mat cOutputImg;
          cv::flip(cAnnotatedImage, cOutputImg, 1);
-         cv::imshow("Output", cOutputImg);
+         cv::imshow("Output", cAnnotatedImage);
 
          /*
          std::ostringstream cFilePath;
@@ -250,7 +407,6 @@ int main(int n_arg_count, char* ppch_args[]) {
                    << ".png";
          cv::imwrite(cFilePath.str().c_str(), cAnnotatedImage);
          */
-
 
          /* delay */
          if(cv::waitKey(1) == 'q') {
