@@ -38,59 +38,13 @@ namespace std {
    };
 }
 
-std::ostream& operator<<(std::ostream& c_stream, const SBlock& s_block) {
-   auto tInitFlags = c_stream.flags();
-   auto tInitPrec = c_stream.precision();
-   c_stream.setf(std::ios::fixed);
-   c_stream.precision(3);
-   c_stream << "T["
-            << s_block.Translation.X << ", "
-            << s_block.Translation.Y << ", "
-            << s_block.Translation.Z << "]"
-            << '\t';
-   c_stream << "R["
-            << (s_block.Rotation.Z * 180.0f) / M_PI << ", "
-            << (s_block.Rotation.Y * 180.0f) / M_PI << ", "
-            << (s_block.Rotation.X * 180.0f) / M_PI << "]";
-   c_stream.flags(tInitFlags);
-   c_stream.precision(tInitPrec);
-   return c_stream;
-}
-
-std::ostream& print_matrix(std::ostream& c_stream, const cv::Mat& c_cv_matrix) {
-   auto tInitFlags = c_stream.flags();
-   auto tInitPrec = c_stream.precision();
-   
-   c_stream.setf(std::ios::fixed);
-   c_stream.precision(2);
-
-   for(int i = 0; i < c_cv_matrix.size().height; i++) {
-      c_stream << "[";
-      for(int j = 0; j < c_cv_matrix.size().width; j++) {
-         c_stream << c_cv_matrix.at<double>(i,j);
-         if(j != c_cv_matrix.size().width - 1) {
-            c_stream << ", ";
-         }
-         else {
-            c_stream << "]" << std::endl;
-         }
-      }
-   }
-
-   c_stream.flags(tInitFlags);
-   c_stream.precision(tInitPrec);   
-
-   return c_stream;
-}
-
-
 struct SLoadedImage {
    std::string FilePath;
    cv::Mat ImageData;
    std::chrono::time_point<std::chrono::steady_clock> Timestamp;
 };
 
-std::string strFileSuffix("test_");
+std::string strFileSuffix("baddetect");
 std::string strFileExtension(".png");
 
 int main(int n_arg_count, char* ppch_args[]) {
@@ -151,11 +105,13 @@ int main(int n_arg_count, char* ppch_args[]) {
    CBlockSensor* m_pcBlockSensor =
       new CBlockSensor;
    CBlockTracker* m_pcBlockTracker =
-      new CBlockTracker(640u, 360u, 3u, 0.05f);
+      new CBlockTracker(10u, 0.05f);
       
    cv::namedWindow("Output");
    cv::moveWindow("Output", 1975, 50);
  
+   CFrameAnnotator cFrameAnnotator(m_pcBlockSensor->GetCameraMatrix(), m_pcBlockSensor->GetDistortionParameters());
+
    cv::VideoCapture cWebcam(0);
    cv::Mat cTmpImage;
 
@@ -170,12 +126,13 @@ int main(int n_arg_count, char* ppch_args[]) {
       }
 
       for(SLoadedImage& s_loaded_image : vecImages) {
+         /*
          if(unLoadedImagesCount != 0) {
             std::cerr << "processing: " << s_loaded_image.FilePath << std::endl;
          }
-                 
+         */
+         /* clear list of blocks from previous detection */                 
          lstDetectedBlocks.clear();
-         std::chrono::time_point<std::chrono::steady_clock> tDetectionTime = s_loaded_image.Timestamp;
 
          /* convert image to apriltags format */
          image_u8_t* ptImageY = image_u8_create(s_loaded_image.ImageData.cols, s_loaded_image.ImageData.rows);
@@ -187,64 +144,17 @@ int main(int n_arg_count, char* ppch_args[]) {
          /* Detect blocks */
          m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, lstDetectedBlocks);
          /* Deallocate the apriltags image */
-         cv::Mat temp(ptImageY->height, ptImageY->width, CV_8UC1, ptImageY->buf, ptImageY->stride);
-         cv::Mat cAnnotatedImage;
-         cv::cvtColor(temp, cAnnotatedImage, CV_GRAY2BGR);
-
          image_u8_destroy(ptImageY);
 
-         //cv::Mat cAnnotatedImage;
-         //cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
-         
-         /*
-         unsigned int unBlockId = 0;
-         for(const SBlock& s_block : lstDetectedBlocks) {
-            std::ostringstream cStream;
-            cStream << '[' << unBlockId << ']';
-            for(const STag& s_tag : s_block.Tags) {
-               CFrameAnnotator::Annotate(cAnnotatedImage, s_tag, cStream.str());
-            }
-            unBlockId++;
-         }
-         */
-         for(const SBlock& s_block : lstDetectedBlocks)
-            CFrameAnnotator::Annotate(cAnnotatedImage,
-                                      s_block,
-                                      m_pcBlockSensor->GetCameraMatrix(),
-                                      m_pcBlockSensor->GetDistortionParameters());
-
-
-
-         // pass the time in miliseconds to track targets to allow for protectile based matching
+         /* Associate the known targets with the newly detected blocks */
          m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, lstDetectedBlocks, lstTrackedTargets);
-         /*
-         for(const STarget& s_target : lstTrackedTargets) {
-            std::ostringstream cText;
-            cText << '[' << s_target.Id << ']';
-            CFrameAnnotator::Annotate(cAnnotatedImage,
-                                      s_target,
-                                      m_pcBlockSensor->GetCameraMatrix(),
-                                      m_pcBlockSensor->GetDistortionParameters(),
-                                      cText.str(),
-                                      tReferenceTime);
-         }
-         */
+         
          double fTimestamp = std::chrono::duration<double, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count();
-
          double m_fConnectivityThreshold = 0.055f * 1.25f; // 1.25 block distances
-
+         /* define the target connectivity map */
          using TTargetIterator = std::list<STarget>::iterator;
-
-         struct STransform {
-            cv::Mat Rotation;
-            cv::Mat Translation;
-            TTargetIterator Other;
-         };
-
-
          std::unordered_multimap<TTargetIterator, TTargetIterator> mapTargetConnectivity;
-
-         /* build the structure map */
+         /* build the target connectivity map */
          for(auto it_from_target = std::begin(lstTrackedTargets);
              it_from_target != std::end(lstTrackedTargets);
              it_from_target++) {
@@ -255,18 +165,15 @@ int main(int n_arg_count, char* ppch_args[]) {
                if(it_from_target != it_to_target) {
                   const SBlock& sFromObservation = it_from_target->Observations.front();
                   const SBlock& sToObservation = it_to_target->Observations.front();
-                  if(std::sqrt(std::pow(sFromObservation.Translation.X - sToObservation.Translation.X, 2) +
-                               std::pow(sFromObservation.Translation.Y - sToObservation.Translation.Y, 2) +
-                               std::pow(sFromObservation.Translation.Z - sToObservation.Translation.Z, 2)) < m_fConnectivityThreshold) {
+                  if(argos::Distance(sFromObservation.Translation, sToObservation.Translation) < m_fConnectivityThreshold) {
                      /* populate the connectivity map */
                      mapTargetConnectivity.emplace(it_from_target, it_to_target);
-                  }  
+                  }
                }
             }
          }
-
+         /* define the root target as the target with the highest connectivity */
          auto itRootTarget = std::end(lstTrackedTargets);
-
          for(auto it_target = std::begin(lstTrackedTargets);
              it_target != std::end(lstTrackedTargets);
              it_target++) {
@@ -276,50 +183,11 @@ int main(int n_arg_count, char* ppch_args[]) {
          }
 
          if(itRootTarget != std::end(lstTrackedTargets)) {
-            CFrameAnnotator::Annotate(cAnnotatedImage,
-                                         *itRootTarget,
-                                         m_pcBlockSensor->GetCameraMatrix(),
-                                         m_pcBlockSensor->GetDistortionParameters(),
-                                         "[R]",
-                                         cv::Scalar(0,255,255));
+            cFrameAnnotator.Annotate(*itRootTarget, cv::Scalar(0,255,255), "[R]");
+
+            const SBlock& sRootObservation = (itRootTarget->PseudoObservations.size() != 0) ?
+                itRootTarget->PseudoObservations.front() : itRootTarget->Observations.front();
          
-            /* build the transformation matrix */
-            cv::Mat cRootTargetTransform = cv::Mat::zeros(4, 4, CV_64F);
-
-            const SBlock& sRootTargetBlock = itRootTarget->Observations.front();
-
-            cRootTargetTransform.at<double>(0, 3) = sRootTargetBlock.Translation.X;
-            cRootTargetTransform.at<double>(1, 3) = sRootTargetBlock.Translation.Y;
-            cRootTargetTransform.at<double>(2, 3) = sRootTargetBlock.Translation.Z;
-            cRootTargetTransform.at<double>(3, 3) = 1.0f;
-
-            argos::CRadians pcRootTargetEulerAngles[] = {
-               argos::CRadians(sRootTargetBlock.Rotation.Z),
-               argos::CRadians(sRootTargetBlock.Rotation.Y),
-               argos::CRadians(sRootTargetBlock.Rotation.X),
-            };
-
-            argos::CQuaternion cRootTargetRotationQuaternion;
-            cRootTargetRotationQuaternion.FromEulerAngles(pcRootTargetEulerAngles[0],
-                                                          pcRootTargetEulerAngles[1],
-                                                          pcRootTargetEulerAngles[2]);
-            argos::CRotationMatrix3 cRootTargetRotationMatrix(cRootTargetRotationQuaternion);
-
-            /* copy rotation matrix values */
-            cv::Mat(3, 3, CV_64F, &cRootTargetRotationMatrix(0,0)).copyTo(cRootTargetTransform(cv::Rect(0,0,3,3)));
-
-            // For each other target, rebuild the cv translation and rotation vectors
-            // use cv::RTCompose to add the transforms of the other targets to the inverse of the root target
-            // print out coordinates x,y,z - hopefully, they should be combinations of +/-1
-
-            /* 
-
-            cv::Mat cRootTargetInvRotationVector, cRootTargetInvTranslationVector;
-            cv::Rodrigues(cRootTargetInvTransform(cv::Rect(0,0,3,3)), cRootTargetInvRotationVector);
-            cRootTargetInvTranslationVector = cRootTargetInvTransform(cv::Rect(3,0,1,3));
-
-            */
-            
             /* display the connectivity */
             for(auto it_target = std::begin(lstTrackedTargets);
                 it_target != std::end(lstTrackedTargets);
@@ -329,42 +197,24 @@ int main(int n_arg_count, char* ppch_args[]) {
                   continue;
                }
 
-               cv::Mat cTargetTransform = cv::Mat::zeros(4, 4, CV_64F);
+               const SBlock& sObservation = (it_target->PseudoObservations.size() != 0) ?
+                  it_target->PseudoObservations.front() : it_target->Observations.front();
 
-               const SBlock& sTargetBlock = it_target->Observations.front();
-
-               cTargetTransform.at<double>(0, 3) = sTargetBlock.Translation.X;
-               cTargetTransform.at<double>(1, 3) = sTargetBlock.Translation.Y;
-               cTargetTransform.at<double>(2, 3) = sTargetBlock.Translation.Z;
-               cTargetTransform.at<double>(3, 3) = 1.0f;
-
-               argos::CRadians pcTargetEulerAngles[] = {
-                  argos::CRadians(sTargetBlock.Rotation.Z),
-                  argos::CRadians(sTargetBlock.Rotation.Y),
-                  argos::CRadians(sTargetBlock.Rotation.X),
-               };
-
-               argos::CQuaternion cTargetRotationQuaternion;
-               cTargetRotationQuaternion.FromEulerAngles(pcTargetEulerAngles[0],
-                                                         pcTargetEulerAngles[1],
-                                                         pcTargetEulerAngles[2]);
-               argos::CRotationMatrix3 cTargetRotationMatrix(cTargetRotationQuaternion);
-
-               /* copy rotation matrix values */
-               cv::Mat(3, 3, CV_64F, &cTargetRotationMatrix(0,0)).copyTo(cTargetTransform(cv::Rect(0,0,3,3)));
-
-               cv::Mat cTargetRelativeTransform = cRootTargetTransform.inv() * cTargetTransform;
-
-               //std::cout << "Target " << it_target->Id << std::endl;
-               //std::cout << sTargetBlock << std::endl;
-               //print_matrix(std::cout, cTargetRelativeTransform);
+               /* calculate the relative transform */
+               argos::CVector3 cTargetRelativeTranslation = sObservation.Translation;
+               cTargetRelativeTranslation -= sRootObservation.Translation;
+               cTargetRelativeTranslation.Rotate(sRootObservation.Rotation.Inverse());
 
                double fBlockWidth = 0.055f;
+
                std::ostringstream cCoords;
 
-               cCoords << std::round(cTargetRelativeTransform.at<double>(0, 3) / fBlockWidth) << ", ";
-               cCoords << std::round(cTargetRelativeTransform.at<double>(1, 3) / fBlockWidth) << ", ";
-               cCoords << std::round(cTargetRelativeTransform.at<double>(2, 3) / fBlockWidth);
+               cCoords << std::round(cTargetRelativeTranslation.GetX() / fBlockWidth) << ", ";
+               cCoords << std::round(cTargetRelativeTranslation.GetY() / fBlockWidth) << ", ";
+               cCoords << std::round(cTargetRelativeTranslation.GetZ() / fBlockWidth);
+
+               //cCoords.str(std::to_string(it_target->Id));
+               //std::cout << "Target #" << itRootTarget->Id << " => Target #" << it_target->Id << ": [" << cCoords.str() << "]" << std::endl;
 
                cv::Scalar cColor;
                switch(mapTargetConnectivity.count(it_target)) {
@@ -378,38 +228,35 @@ int main(int n_arg_count, char* ppch_args[]) {
                      cColor = cv::Scalar(0,0,255);
                      break;
                }
-               /*
                std::ostringstream cText;
                cText << '[' << cCoords.str() << ']';
-               CFrameAnnotator::Annotate(cAnnotatedImage,
-                                         *it_target,
-                                         m_pcBlockSensor->GetCameraMatrix(),
-                                         m_pcBlockSensor->GetDistortionParameters(),
-                                         cText.str(),
-                                         cColor);
-
-               */
-
+               cFrameAnnotator.Annotate(*it_target, cColor, cText.str());
             }
          }
-                  
-         cv::Mat cOutputImg;
-         cv::flip(cAnnotatedImage, cOutputImg, 1);
+
+         /* Create a color version of the image for annotation */
+         cv::Mat cAnnotatedImage;
+         cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
+         cFrameAnnotator.WriteToFrame(cAnnotatedImage);
+         cFrameAnnotator.Clear();
+
+         //cv::Mat cOutputImg;
+         //cv::flip(cAnnotatedImage, cOutputImg, 1);
          cv::imshow("Output", cAnnotatedImage);
 
-         /*
+/*
          std::ostringstream cFilePath;
          cFilePath << "/home/allsey87/Workspace/blocktracker-testbench/output/"
-                   << "out"
+                   << "baddetect"
                    << std::setfill('0')
                    << std::setw(7)
                    << static_cast<int>(fTimestamp)
                    << ".png";
-         cv::imwrite(cFilePath.str().c_str(), cAnnotatedImage);
-         */
+         cv::imwrite(cFilePath.str().c_str(), s_loaded_image.ImageData);
+*/
 
          /* delay */
-         if(cv::waitKey(1) == 'q') {
+         if(cv::waitKey(10) == 'q') {
             break;
          }
       }

@@ -21,6 +21,32 @@
 #include "tag.h"
 #include "block.h"
 
+std::ostream& print_matrix(std::ostream& c_stream, const cv::Mat& c_cv_matrix) {
+   auto tInitFlags = c_stream.flags();
+   auto tInitPrec = c_stream.precision();
+   
+   c_stream.setf(std::ios::fixed);
+   c_stream.precision(3);
+
+   for(int i = 0; i < c_cv_matrix.size().height; i++) {
+      c_stream << "[";
+      for(int j = 0; j < c_cv_matrix.size().width; j++) {
+         c_stream << c_cv_matrix.at<double>(i,j);
+         if(j != c_cv_matrix.size().width - 1) {
+            c_stream << ", ";
+         }
+         else {
+            c_stream << "]" << std::endl;
+         }
+      }
+   }
+
+   c_stream.flags(tInitFlags);
+   c_stream.precision(tInitPrec);   
+
+   return c_stream;
+}
+
 /****************************************/
 /****************************************/
 
@@ -39,7 +65,7 @@ CBlockSensor::CBlockSensor() {
    m_psTagDetector->debug = 0;
    m_psTagDetector->refine_edges = 1;
    m_psTagDetector->refine_decode = 0;
-   m_psTagDetector->refine_pose = 1;
+   m_psTagDetector->refine_pose = 0;
 }
 
 /****************************************/
@@ -77,25 +103,6 @@ void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
       std::vector<STag>& vecBlockTags = sBlock.Tags;
       vecBlockTags.emplace_back();
       STag& sTag = vecBlockTags.back();
-
-      /* Get the pose of the tag and store as a transformation matrix for later use */
-      matd_t* psPoseMatrix = homography_to_pose(psDetection->H, m_fFx, m_fFy, m_fPx, m_fPy);
-      sTag.TransformationMatrix.Set(psPoseMatrix->data);
-      matd_destroy(psPoseMatrix);
-
-      /* apply transformations such that our pose matrix matches the opencv format */
-      sTag.TransformationMatrix *= m_cCameraToModelTransform;
-      sTag.TransformationMatrix.SetTranslationVector(sTag.TransformationMatrix.GetTranslationVector() * m_fTagSize * -0.5f);
-
-
-      std::cout << "AprTag Tag Matrix: " << std::endl << sTag.TransformationMatrix;
-      argos::CRadians cEulers[3];
-      sTag.TransformationMatrix.GetRotationMatrix().ToQuaternion().ToEulerAngles(cEulers[0], cEulers[1], cEulers[2]);
-      std::cout << "AprTag Angles (Z,Y,X): " << argos::ToDegrees(cEulers[0]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[1]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[2]).GetValue() << std::endl;   
-
-
       /* Copy the corners of the tags into an STag for later use */
       sTag.Corners = {
          std::pair<double, double>(psDetection->p[0][0], psDetection->p[0][1]),
@@ -112,7 +119,6 @@ void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
          cv::Point2d(psDetection->p[2][0], psDetection->p[2][1]),
          cv::Point2d(psDetection->p[3][0], psDetection->p[3][1]),
       };
-
       /* OpenCV SolvePnP - detect the translation between the camera 
          plane and the tag plane */
       cv::solvePnP(m_vecTagPts,
@@ -121,107 +127,33 @@ void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
                    m_cDistortionParameters,
                    sTag.RotationVector,
                    sTag.TranslationVector);
-
-      cv::Matx33d cTempRotationMatrixCV;
-      argos::CRotationMatrix3 cTempRotationMatrix;
-      cv::Rodrigues(sTag.RotationVector, cTempRotationMatrixCV);
-      cTempRotationMatrix.Set(&cTempRotationMatrixCV(0,0));
-
-      /* // PRINT OPENCV MATRIX
-      std::cout << "OpenCV Tag Matrix: " << std::endl << argos::CTransformationMatrix3(cTempRotationMatrix, 
-                                                                                   argos::CVector3(sTag.TranslationVector.at<double>(0, 0),
-                                                                                                   sTag.TranslationVector.at<double>(1, 0),
-                                                                                                   sTag.TranslationVector.at<double>(2, 0)));
-      cTempRotationMatrix.ToQuaternion().ToEulerAngles(cEulers[0], cEulers[1], cEulers[2]);
-      std::cout << "OpenCV Angles (Z,Y,X): " << argos::ToDegrees(cEulers[0]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[1]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[2]).GetValue() << std::endl;
-      std::cout << "---" << std::endl;
-      */
-
       /* Detect the LEDs surrounding the tag */
       DetectLeds(sTag, pt_image_y, pt_image_u, pt_image_v);
-   
-      /* Compose the tag-to-block and camera-to-tag transformations to get
-         the camera-to-block transformation, storing the result directly
-         inside sBlock */
+      /* Compose the tag-to-block and camera-to-tag transformations to get the camera-to-block transformation */
       cv::composeRT(m_cTagToBlockRotationCV,
                     m_cTagToBlockTranslationCV,
                     sTag.RotationVector,
                     sTag.TranslationVector,
                     sBlock.RotationVector,
                     sBlock.TranslationVector);
-
-      sTag.Translation = sTag.TransformationMatrix.GetTranslationVector();
-      sTag.Rotation = argos::CRotationMatrix3(sTag.TransformationMatrix.GetRotationMatrix()).ToQuaternion();
-
-      /* create opencv and ARGoS rotation matrices for conversion */
-      /* Note: it should be possible to convert directly using the angle-axis format (for which a quaternion constructor exists) */
-      cv::Matx33d cRotationMatrixCV;
+      /* calculate the center coordinate the the block */
+      std::vector<cv::Point2d> vecBlockCentrePixel;
+      cv::projectPoints(m_vecOriginPts,
+                        sBlock.RotationVector,
+                        sBlock.TranslationVector,
+                        m_cCameraMatrix,
+                        m_cDistortionParameters,
+                        vecBlockCentrePixel);
+      sBlock.Coordinates.Set(vecBlockCentrePixel[0].x, vecBlockCentrePixel[0].y);
+      /* normalise the Z angle of the tag and convert to argos::CVector3 and argos::CQuaternion format */
       argos::CRotationMatrix3 cRotationMatrix;
-      
-      cv::Rodrigues(sBlock.RotationVector, cRotationMatrixCV);
-      cRotationMatrix.Set(&cRotationMatrixCV(0,0));
-      argos::CQuaternion cRotationQuaternion = cRotationMatrix.ToQuaternion();
-      
-      /* extract euler angles and normalize */
       argos::CRadians cBlockEulerAngles[3];
-      cRotationQuaternion.ToEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
-      argos::CRange<argos::CRadians> cBlockRotationRange(-argos::CRadians::PI_OVER_FOUR, argos::CRadians::PI_OVER_FOUR);
-      cBlockRotationRange.WrapValue(cBlockEulerAngles[0]);
-
-      argos::CRadians cBlockEulerAnglesT[3];
-      sTag.Rotation.ToEulerAngles(cBlockEulerAnglesT[0], cBlockEulerAnglesT[1], cBlockEulerAnglesT[2]);
-      argos::CRange<argos::CRadians> cBlockRotationRangeT(-argos::CRadians::PI_OVER_FOUR, argos::CRadians::PI_OVER_FOUR);
-      cBlockRotationRangeT.WrapValue(cBlockEulerAnglesT[0]);
-
-      /*
-      std::cout << "OpenCV Euler Angles = " << argos::ToDegrees(cBlockEulerAngles[0]).GetValue() << ", " << argos::ToDegrees(cBlockEulerAngles[1]).GetValue() << ", " << argos::ToDegrees(cBlockEulerAngles[2]).GetValue() << std::endl;
-      std::cout << "ARGoS Euler Angles = " << argos::ToDegrees(cBlockEulerAnglesT[0]).GetValue() << ", " << argos::ToDegrees(cBlockEulerAnglesT[1]).GetValue() << ", " << argos::ToDegrees(cBlockEulerAnglesT[2]).GetValue() << std::endl;
-      std::cout << "---" << std::endl;      
-      */
-      
-
-      /* set the block translation and rotation */
-      sBlock.RotationT.FromEulerAngles(cBlockEulerAnglesT[0], cBlockEulerAnglesT[1], cBlockEulerAnglesT[2]);
-      sBlock.TranslationT = argos::CVector3(m_cTagToBlockTranslation).Rotate(sTag.Rotation) + sTag.Translation;
-
-      
-
-      //////////
-      //argos::CRadians cEulers[3];
-
-      std::cout << "AprTag Block Matrix: " << std::endl << argos::CTransformationMatrix3(sBlock.RotationT, sBlock.TranslationT);
-      argos::CTransformationMatrix3(sBlock.RotationT, sBlock.TranslationT).GetRotationMatrix().ToQuaternion().ToEulerAngles(cEulers[0], cEulers[1], cEulers[2]);
-      std::cout << "AprTag Block Angles (Z,Y,X): " << argos::ToDegrees(cEulers[0]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[1]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[2]).GetValue() << std::endl;   
-
-/*
-      argos::CQuaternion cTempBlockRotation;
-      cTempBlockRotation.FromEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
-      argos::CTransformationMatrix3 CTempBlockTransformationMatrix(argos::CRotationMatrix3(cTempBlockRotation),
-                                                                   argos::CVector3(sBlock.TranslationVector.at<double>(0, 0),
-                                                                                   sBlock.TranslationVector.at<double>(1, 0),
-                                                                                   sBlock.TranslationVector.at<double>(2, 0)));
-
-      std::cout << "OpenCV Block Matrix: " << std::endl << CTempBlockTransformationMatrix;
-      CTempBlockTransformationMatrix.GetRotationMatrix().ToQuaternion().ToEulerAngles(cEulers[0], cEulers[1], cEulers[2]);
-      std::cout << "OpenCV Block Angles (Z,Y,X): " << argos::ToDegrees(cEulers[0]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[1]).GetValue() << ", "
-                                      << argos::ToDegrees(cEulers[2]).GetValue() << std::endl;
-*/
-      std::cout << "---" << std::endl;
-      //////////
-
-      sBlock.Rotation.Z = cBlockEulerAngles[0].GetValue();
-      sBlock.Rotation.Y = cBlockEulerAngles[1].GetValue();
-      sBlock.Rotation.X = cBlockEulerAngles[2].GetValue();
-      
-      sBlock.Translation.X = sBlock.TranslationVector.at<double>(0, 0);
-      sBlock.Translation.Y = sBlock.TranslationVector.at<double>(1, 0);
-      sBlock.Translation.Z = sBlock.TranslationVector.at<double>(2, 0);
-
+      cv::Rodrigues(sBlock.RotationVector, cv::Mat(3, 3, CV_64F, &cRotationMatrix(0,0)));
+      cRotationMatrix.ToQuaternion().ToEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
+      m_cBlockZRotationRange.WrapValue(cBlockEulerAngles[0]);
+      /* set the argos::CVector3 and argos::CQuaternion */
+      sBlock.Rotation.FromEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
+      sBlock.Translation.Set(sBlock.TranslationVector(0), sBlock.TranslationVector(1), sBlock.TranslationVector(2));
       /* store the block into our block list */
       lst_detections.push_back(sBlock);
    }
@@ -238,28 +170,14 @@ void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
 
 void CBlockSensor::DetectLeds(STag& s_tag, image_u8_t* pt_y_frame, image_u8_t* pt_u_frame, image_u8_t* pt_v_frame) {
    /* create opencv headers (no copying happens here) */
-   cv::Mat c_y_frame(pt_u_frame->height, pt_u_frame->width, CV_8UC1, pt_u_frame->buf, pt_u_frame->stride);
+   cv::Mat c_y_frame(pt_y_frame->height, pt_y_frame->width, CV_8UC1, pt_y_frame->buf, pt_y_frame->stride);
    cv::Mat c_u_frame(pt_u_frame->height, pt_u_frame->width, CV_8UC1, pt_u_frame->buf, pt_u_frame->stride);
    cv::Mat c_v_frame(pt_v_frame->height, pt_v_frame->width, CV_8UC1, pt_v_frame->buf, pt_v_frame->stride);
 
-   std::vector<cv::Point3d> vecLedPoints = {
-      cv::Point3d(-m_fInterLedLength * 0.5f, 0, 0),
-      cv::Point3d( m_fInterLedLength * 0.5f, 0, 0),
-      cv::Point3d( 0, -m_fInterLedLength * 0.5f, 0),
-      cv::Point3d( 0,  m_fInterLedLength * 0.5f, 0)
-   };
    std::vector<cv::Point2d> vecLedCentrePixels;
-
-   argos::CVector3 Translation = s_tag.TransformationMatrix.GetTranslationVector();
-   argos::CRotationMatrix3 Rotation = s_tag.TransformationMatrix.GetRotationMatrix();
-
-   cv::Matx31d RotationVector;
-   cv::Rodrigues(cv::Mat(3, 3, CV_64F, &Rotation(0,0)), RotationVector);
-   cv::Matx31d TranslationVector(Translation.GetX(), Translation.GetY(), Translation.GetZ());
-
-   cv::projectPoints(vecLedPoints,
-                     RotationVector, TranslationVector,
-                     //s_tag.RotationVector, s_tag.TranslationVector,
+   cv::projectPoints(m_vecLedPoints,
+                     s_tag.RotationVector,
+                     s_tag.TranslationVector,
                      m_cCameraMatrix,
                      m_cDistortionParameters,
                      vecLedCentrePixels);
@@ -299,7 +217,7 @@ void CBlockSensor::DetectLeds(STag& s_tag, image_u8_t* pt_y_frame, image_u8_t* p
          }
       }
       
-      cv::rectangle(c_y_frame, cLedRectangle, cv::Scalar(255, 255, 255));
+      //cv::rectangle(c_y_frame, cLedRectangle, cv::Scalar(255, 255, 255));
             
       fWeightedAverageU /= fSumY;
       fWeightedAverageV /= fSumY;
@@ -354,10 +272,7 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
          for(TCluster::iterator it_block = it_cluster->begin();
              it_block != it_cluster->end();
              it_block++) {
-            double fInterblockDist = 
-               sqrt(pow(it_block->Translation.X - itDetectedBlock->Translation.X, 2) +
-                    pow(it_block->Translation.Y - itDetectedBlock->Translation.Y, 2) +
-                    pow(it_block->Translation.Z - itDetectedBlock->Translation.Z, 2));
+            double fInterblockDist = argos::Distance(it_block->Translation, itDetectedBlock->Translation);
             /* if the given block in this cluster is within a distance of 
                (m_fBlockSideLength / 2) of the detected block, they belong 
                to the same cluster */
@@ -405,37 +320,16 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
       }
    }
 
-   /*
-   unsigned int i = 0;
-   for(TCluster& t_cluster : lstClusters) {
-      std::cerr << "cluster " << i << " contains:" << std::endl;
-      unsigned int j = 0;
-      for(SBlock& s_block : t_cluster) {
-         std::cout << "Block " << j << std::endl
-                   << "Translation (X, Y, Z): " << s_block.Translation.X << ", " << s_block.Translation.Y << ", " << s_block.Translation.Z << std::endl
-                   << "Rotation (Z, Y, X): " << argos::ToDegrees(argos::CRadians(s_block.Rotation.Z)).GetValue() << ", " 
-                                             << argos::ToDegrees(argos::CRadians(s_block.Rotation.Y)).GetValue() << ", "
-                                             << argos::ToDegrees(argos::CRadians(s_block.Rotation.X)).GetValue() << std::endl;
-         j++;
-      }
-      i++;
-   }
-   */
-
    /* find the average location of the block */
    for(TCluster& t_cluster : lstClusters) {
-      double fX = 0.0f, fY = 0.0f, fZ = 0.0f;
+      argos::CVector3 cAvgLocation;
       for(SBlock& s_block : t_cluster) {
-         fX += s_block.Translation.X;
-         fY += s_block.Translation.Y;
-         fZ += s_block.Translation.Z;
+         cAvgLocation += s_block.Translation;
       }
-      fX /= t_cluster.size();
-      fY /= t_cluster.size();
-      fZ /= t_cluster.size();
+      cAvgLocation /= t_cluster.size();
       
       /* Find the block that has the highest tag (lowest Y coordinate in 2D) */
-      TCluster::iterator itTopTagBlock = std::min_element(std::begin(t_cluster), 
+      TCluster::iterator itTopTagBlock = std::min_element(std::begin(t_cluster),
                                          std::end(t_cluster),
                                          [] (const SBlock& s_block_a, 
                                              const SBlock& s_block_b) {
@@ -444,9 +338,8 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
       });
             
       /* update it's location with the average location */
-      itTopTagBlock->Translation.X = fX;
-      itTopTagBlock->Translation.Y = fY;
-      itTopTagBlock->Translation.Z = fZ;
+      /* perhaps it is better to turn this off - top tag will likely be the best measurement */
+      //itTopTagBlock->Translation = cAvgLocation;
       
       /* This is a hack to conserve the other detected tags */
       for(TCluster::iterator it_block = std::begin(t_cluster);

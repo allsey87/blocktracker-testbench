@@ -25,6 +25,7 @@ add_executable(blocktracker
                hungarian_solver.cc               
                tag.cc
                argos3/core/utility/math/angles.cpp
+               argos3/core/utility/math/vector2.cpp
                argos3/core/utility/math/vector3.cpp
                argos3/core/utility/math/matrix/rotationmatrix3.cpp
                argos3/core/utility/math/matrix/transformationmatrix3.cpp)

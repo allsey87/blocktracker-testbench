@@ -3,7 +3,10 @@
 
 #include <opencv2/core/core.hpp>
 #include <apriltag/image_u8.h>
+
 #include <argos3/core/utility/math/vector3.h>
+#include <argos3/core/utility/math/angles.h>
+#include <argos3/core/utility/math/range.h>
 
 #include "block.h"
 
@@ -54,39 +57,46 @@ private:
    const unsigned int m_unLedLuminanceOnThreshold = 64;
    
    /* camera focal length in pixels */
-   const double m_fFx = 555.0; 
-   const double m_fFy = 555.0;
+   const double m_fFx = 674.382f;//555.0; 
+   const double m_fFy = 674.382f;//555.0;
    
    /* camera principal point */
-   const double m_fPx = 320.0; 
-   const double m_fPy = 180.0;
+   const double m_fPx = 319.5; 
+   const double m_fPy = 239.5;
 
    /* Tag to block translation and rotation constants */
    const cv::Matx31d m_cTagToBlockTranslationCV = cv::Matx31d(0, 0, m_fBlockSideLength / 2);
    const cv::Matx31d m_cTagToBlockRotationCV = cv::Matx31d(0, 0, 0);
 
-   const argos::CVector3 m_cTagToBlockTranslation = argos::CVector3(0, 0, -m_fBlockSideLength / 2);
-
-   const argos::CTransformationMatrix3 m_cCameraToModelTransform =
-      argos::CTransformationMatrix3(-1.0f,  0.0f,  0.0f,  0.0f,
-                                     0.0f, -1.0f,  0.0f,  0.0f,
-                                     0.0f,  0.0f,  1.0f,  0.0f,
-                                     0.0f,  0.0f,  0.0f,  1.0f);
-
    /* corner locations of the april tag */
    const std::vector<cv::Point3d> m_vecTagPts = {
-      cv::Point3d(-m_fTagSize/2., -m_fTagSize/2., 0),
-      cv::Point3d( m_fTagSize/2., -m_fTagSize/2., 0),
-      cv::Point3d( m_fTagSize/2.,  m_fTagSize/2., 0),
-      cv::Point3d(-m_fTagSize/2.,  m_fTagSize/2., 0)
+      cv::Point3d(-m_fTagSize * 0.5f, -m_fTagSize * 0.5f, 0),
+      cv::Point3d( m_fTagSize * 0.5f, -m_fTagSize * 0.5f, 0),
+      cv::Point3d( m_fTagSize * 0.5f,  m_fTagSize * 0.5f, 0),
+      cv::Point3d(-m_fTagSize * 0.5f,  m_fTagSize * 0.5f, 0),
    };
+
+   const std::vector<cv::Point3d> m_vecOriginPts = {
+      cv::Point3d(0.0f,0.0f, 0.0f)
+   };
+
+   /* locations of the LEDs */
+   const std::vector<cv::Point3d> m_vecLedPoints = {
+      cv::Point3d(-m_fInterLedLength * 0.5f, 0, 0),
+      cv::Point3d( m_fInterLedLength * 0.5f, 0, 0),
+      cv::Point3d( 0, -m_fInterLedLength * 0.5f, 0),
+      cv::Point3d( 0,  m_fInterLedLength * 0.5f, 0)
+   };
+
+   const argos::CRange<argos::CRadians> m_cBlockZRotationRange = 
+      argos::CRange<argos::CRadians>(-argos::CRadians::PI_OVER_FOUR, argos::CRadians::PI_OVER_FOUR);
 
    /* camera matrix */
    const cv::Matx33d m_cCameraMatrix = cv::Matx33d(m_fFx, 0, m_fPx,
                                                    0, m_fFy, m_fPy,
                                                    0,     0,    1);
    /* camera distortion parameters */
-   const cv::Vec4d m_cDistortionParameters = cv::Vec4d(0, 0, 0, 0);
+   const cv::Vec4d m_cDistortionParameters = cv::Vec5d(-3.2384843377265091e-02, 1.6860845659698542e-01, 0.0, 0.0, -8.6342119832667374e-01);
 
    
 };
