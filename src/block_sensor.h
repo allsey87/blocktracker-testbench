@@ -18,9 +18,9 @@ struct apriltag_detector;
 class CBlockSensor {
    
 public:
-
    /* constructor */
-   CBlockSensor();
+   CBlockSensor(const cv::Matx<double, 3, 3>& c_camera_matrix,
+                const cv::Matx<double, 5, 1>& c_distortion_parameters);
    
    /* destructor */
    ~CBlockSensor();
@@ -28,22 +28,13 @@ public:
    void DetectBlocks(image_u8_t* pt_y_frame,
                      image_u8_t* pt_u_frame,
                      image_u8_t* pt_v_frame,
-                     std::list<SBlock>& lst_blocks);
-
-   const cv::Matx33d& GetCameraMatrix() {
-      return m_cCameraMatrix;
-   }
-
-   const cv::Vec4d& GetDistortionParameters() {
-      return m_cDistortionParameters;
-   }
+                     SBlock::TList& t_block_list);
 
 private:
-
    void DetectLeds(STag& s_tag, image_u8_t* pt_y_frame, image_u8_t* pt_u_frame, image_u8_t* pt_v_frame);
 
-   void ClusterDetections(std::list<SBlock>& lst_detections,
-                          std::list<SBlock>& lst_blocks);
+   void ClusterDetections(SBlock::TList& t_detection_list,
+                          SBlock::TList& t_block_list);
                           
    /* Apriltag family and detector */
    apriltag_family* m_psTagFamily;
@@ -55,14 +46,6 @@ private:
    const double m_fInterLedLength = 0.040;
    const unsigned int m_unLedRegionOfInterestLength = 9;
    const unsigned int m_unLedLuminanceOnThreshold = 64;
-   
-   /* camera focal length in pixels */
-   const double m_fFx = 674.382f;//555.0; 
-   const double m_fFy = 674.382f;//555.0;
-   
-   /* camera principal point */
-   const double m_fPx = 319.5; 
-   const double m_fPy = 239.5;
 
    /* Tag to block translation and rotation constants */
    const cv::Matx31d m_cTagToBlockTranslationCV = cv::Matx31d(0, 0, m_fBlockSideLength / 2);
@@ -76,6 +59,7 @@ private:
       cv::Point3d(-m_fTagSize * 0.5f,  m_fTagSize * 0.5f, 0),
    };
 
+   /* center of the block */
    const std::vector<cv::Point3d> m_vecOriginPts = {
       cv::Point3d(0.0f,0.0f, 0.0f)
    };
@@ -92,11 +76,9 @@ private:
       argos::CRange<argos::CRadians>(-argos::CRadians::PI_OVER_FOUR, argos::CRadians::PI_OVER_FOUR);
 
    /* camera matrix */
-   const cv::Matx33d m_cCameraMatrix = cv::Matx33d(m_fFx, 0, m_fPx,
-                                                   0, m_fFy, m_fPy,
-                                                   0,     0,    1);
+   const cv::Matx<double, 3, 3>& m_cCameraMatrix;
    /* camera distortion parameters */
-   const cv::Vec4d m_cDistortionParameters = cv::Vec5d(-3.2384843377265091e-02, 1.6860845659698542e-01, 0.0, 0.0, -8.6342119832667374e-01);
+   const cv::Matx<double, 5, 1>& m_cDistortionParameters;
 
    
 };

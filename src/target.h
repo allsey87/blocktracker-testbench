@@ -2,17 +2,19 @@
 #define TARGET_H
 
 #include <list>
-#include <string>
-
 #include "block.h"
 
-struct STarget {     
-   std::list<SBlock> Observations;
+struct STarget {
+   using TList = std::list<STarget>;
+   using TListIterator = TList::iterator;
+   using TConstListIterator = TList::const_iterator;
 
-   std::list<SBlock> PseudoObservations;
+   /* Lists of target observations */
+   SBlock::TList Observations;
+   SBlock::TList PseudoObservations;
 
-   /* -1 represents no assigned identifier */
-   unsigned int Id = -1;
+   /* Identifier (0 => unassigned) */
+   unsigned int Id = 0;
 };
 
 #endif

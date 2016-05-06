@@ -2,10 +2,20 @@
 #define BLOCK_H
 
 #include <chrono>
+#include <list>
+
+#include <argos3/core/utility/math/vector2.h>
+#include <argos3/core/utility/math/vector3.h>
+#include <argos3/core/utility/math/quaternion.h>
+#include <argos3/core/utility/math/angles.h>
 
 #include "tag.h"
 
 struct SBlock {
+   using TList = std::list<SBlock>;
+   using TListIterator = TList::iterator;
+   using TConstListIterator = TList::const_iterator;
+
    SBlock(const std::chrono::time_point<std::chrono::steady_clock>& c_timestamp = 
              std::chrono::time_point<std::chrono::steady_clock>(),
           const argos::CVector3& c_translation =

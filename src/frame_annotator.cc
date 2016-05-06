@@ -4,6 +4,7 @@
 #include "tag.h"
 #include "block.h"
 #include "target.h"
+#include "structure.h"
 
 /* for cv::projectPoints */
 #include <opencv2/calib3d/calib3d.hpp>
@@ -20,14 +21,14 @@ void CFrameAnnotator::Annotate(const STag& s_tag,
    for(uint8_t un_corner_idx = 0; un_corner_idx < 4; un_corner_idx++) {
       m_vecLines.emplace_back([=] (cv::Mat& c_frame) {
          cv::line(c_frame,
-                  cv::Point2f(Corners[un_corner_idx].first, Corners[un_corner_idx].second),
-                  cv::Point2f(Corners[(un_corner_idx + 1) % 4].first, Corners[(un_corner_idx + 1) % 4].second),
+                  cv::Point2d(Corners[un_corner_idx].first, Corners[un_corner_idx].second),
+                  cv::Point2d(Corners[(un_corner_idx + 1) % 4].first, Corners[(un_corner_idx + 1) % 4].second),
                   c_color,
                   n_thickness);
       });
    }
    if(!s_text.empty()) {
-      Label(cv::Point2f(s_tag.Center.first + 10, s_tag.Center.second + 10), s_text);
+      Label(cv::Point2d(s_tag.Center.first + 10, s_tag.Center.second + 10), s_text);
    }
 }
 
@@ -38,7 +39,7 @@ void CFrameAnnotator::Annotate(const SBlock& s_block,
                                const cv::Scalar& c_color,
                                const std::string& s_text) {
    /* project block points */
-   std::vector<cv::Point2f> vecOutputImagePoints;
+   std::vector<cv::Point2d> vecOutputImagePoints;
    cv::projectPoints(m_vecBlockVertices,
                      s_block.RotationVector,
                      s_block.TranslationVector,
@@ -71,7 +72,7 @@ void CFrameAnnotator::Annotate(const SBlock& s_block,
    }
 
    if(!s_text.empty()) {
-      Label(cv::Point2f(s_block.Coordinates.GetX() + 10, s_block.Coordinates.GetY() + 10), s_text);
+      Label(cv::Point2d(s_block.Coordinates.GetX() + 10, s_block.Coordinates.GetY() + 10), s_text);
    }
 }
 
@@ -84,25 +85,25 @@ void CFrameAnnotator::Annotate(const STarget& s_target,
    /* draw the block */
    Annotate(s_target.Observations.front(), cv::Scalar(c_color * 0.75));
    /* draw a trace showing previous observations */
-   for(std::list<SBlock>::const_iterator it_block = std::begin(s_target.Observations);
+   for(SBlock::TConstListIterator it_block = std::begin(s_target.Observations);
        it_block != std::end(s_target.Observations);
        it_block++) {
 
       const argos::CVector2& cCoordinates = it_block->Coordinates;
       m_vecLines.emplace_back([=] (cv::Mat& c_frame) {
          cv::circle(c_frame, 
-                    cv::Point2f(cCoordinates.GetX(), cCoordinates.GetY()),
+                    cv::Point2d(cCoordinates.GetX(), cCoordinates.GetY()),
                     2.5f,
                     c_color);
       });
-      std::list<SBlock>::const_iterator itNextBlock = std::next(it_block);      
+      SBlock::TConstListIterator itNextBlock = std::next(it_block);      
       if(itNextBlock != std::end(s_target.Observations)) {
          const argos::CVector2& cFrom = it_block->Coordinates;
          const argos::CVector2& cTo = itNextBlock->Coordinates;
          m_vecLines.emplace_back([=] (cv::Mat& c_frame) {
             cv::line(c_frame,
-                     cv::Point2f(cFrom.GetX(), cFrom.GetY()),
-                     cv::Point2f(cTo.GetX(), cTo.GetY()),
+                     cv::Point2d(cFrom.GetX(), cFrom.GetY()),
+                     cv::Point2d(cTo.GetX(), cTo.GetY()),
                      cv::Scalar(c_color),
                      1);
          });
@@ -110,14 +111,34 @@ void CFrameAnnotator::Annotate(const STarget& s_target,
    }
    if(!s_text.empty()) {
       const argos::CVector2& cCoords = std::begin(s_target.Observations)->Coordinates;
-      Label(cv::Point2f(cCoords.GetX() + 10, cCoords.GetY() + 10), s_text);
+      Label(cv::Point2d(cCoords.GetX() + 10, cCoords.GetY() + 10), s_text);
    }  
 }
 
 /****************************************/
 /****************************************/
 
-void CFrameAnnotator::Label(const cv::Point2f& c_origin,
+void CFrameAnnotator::Annotate(const SStructure& s_structure,
+                               const cv::Scalar& c_color,
+                               const std::string& s_text) {
+
+   /* draw the block */
+   for(const STarget::TListIterator& s_target_iter : s_structure.Members) {
+      //Annotate(s_target_iter->Observations.front(), c_color);
+      Annotate(*s_target_iter, c_color, "[" + std::to_string(s_target_iter->Id) + "]");
+   }
+   /*
+   if(!s_text.empty()) {
+      const argos::CVector2& cCoords = std::begin(s_target.Observations)->Coordinates;
+      Label(cv::Point2d(cCoords.GetX() + 10, cCoords.GetY() + 10), s_text);
+   } 
+   */ 
+}
+
+/****************************************/
+/****************************************/
+
+void CFrameAnnotator::Label(const cv::Point2d& c_origin,
                             const std::string& str_text) {
 
    auto tFont = cv::FONT_HERSHEY_SIMPLEX;
@@ -130,8 +151,8 @@ void CFrameAnnotator::Label(const cv::Point2f& c_origin,
 
    m_vecLabelBackgrounds.emplace_back([=] (cv::Mat& c_frame) {
       cv::rectangle(c_frame,
-                    c_origin + cv::Point2f(0, nBaseline) + cv::Point2f(-nBorderThickness, nBorderThickness),
-                    c_origin + cv::Point2f(cTextSize.width, -cTextSize.height) + cv::Point2f(nBorderThickness, -nBorderThickness),
+                    c_origin + cv::Point2d(0, nBaseline) + cv::Point2d(-nBorderThickness, nBorderThickness),
+                    c_origin + cv::Point2d(cTextSize.width, -cTextSize.height) + cv::Point2d(nBorderThickness, -nBorderThickness),
                     cv::Scalar(0,0,0),
                     -1);
    });

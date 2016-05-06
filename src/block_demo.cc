@@ -18,8 +18,9 @@
 #include <opencv2/calib3d/calib3d.hpp>
 #include <apriltag/image_u8.h>
 
-#include "block_tracker.h"
 #include "block_sensor.h"
+#include "block_tracker.h"
+#include "structure_analyser.h"
 #include "frame_annotator.h"
 
 #include <argos3/core/utility/math/matrix/rotationmatrix3.h>
@@ -29,22 +30,13 @@
 /****************************************/
 /****************************************/
 
-namespace std {
-   template<>
-   struct hash<std::list<STarget>::iterator> {
-      size_t operator () (const std::list<STarget>::iterator& x) const {
-         return std::hash<unsigned int>()(x->Id);
-      }
-   };
-}
-
 struct SLoadedImage {
    std::string FilePath;
    cv::Mat ImageData;
    std::chrono::time_point<std::chrono::steady_clock> Timestamp;
 };
 
-std::string strFileSuffix("baddetect");
+std::string strFileSuffix("test_");
 std::string strFileExtension(".png");
 
 int main(int n_arg_count, char* ppch_args[]) {
@@ -87,8 +79,13 @@ int main(int n_arg_count, char* ppch_args[]) {
    }
    
    unsigned int unLoadedImagesCount = vecImages.size();
+   bool bWebcamMode = (unLoadedImagesCount == 0);
+   
 
-   if(unLoadedImagesCount != 0) {
+   if(bWebcamMode) {
+      std::cerr << "Capturing from webcam" << std::endl; 
+   }
+   else {
       std::cerr << "Loaded " << unLoadedImagesCount << " images" << std::endl; 
       /* ensure images are in the correct order w.r.t. timestamps */
       std::sort(std::begin(vecImages),
@@ -99,18 +96,41 @@ int main(int n_arg_count, char* ppch_args[]) {
       );
    }
 
-   std::list<SBlock> lstDetectedBlocks;
-   std::list<STarget> lstTrackedTargets;
+   /* Parameters for the camera, no loaded images => creative webcam parameters */
+   /* camera focal length in pixels */
+   const double m_fFx = bWebcamMode ?  6.8524376287599046e+02 :  8.8396142504070610e+02; 
+   const double m_fFy = bWebcamMode ?  6.8524376287599046e+02 :  8.8396142504070610e+02; 
+   /* camera principal point */
+   const double m_fPx = bWebcamMode ?  3.1950000000000000e+02 :  3.1950000000000000e+02;
+   const double m_fPy = bWebcamMode ?  2.3950000000000000e+02 :  1.7950000000000000e+02;
+   /* camera distortion coefficients */
+   const double m_fK1 = bWebcamMode ?  9.6397225197803263e-02 :  1.8433447851104852e-02;
+   const double m_fK2 = bWebcamMode ? -7.5356253832909403e-01 :  1.6727474183089033e-01;
+   const double m_fK3 = bWebcamMode ?  1.4040437078320873e+00 : -1.5480889084966631e+00;
+   /* camera matrix */
+   const cv::Matx<double, 3, 3> cCameraMatrix = 
+      cv::Matx<double, 3, 3>(m_fFx, 0.0f, m_fPx,
+                             0.0f, m_fFy, m_fPy,
+                             0.0f,  0.0f,  1.0f);
+   /* camera distortion parameters */
+   const cv::Matx<double, 5, 1> cDistortionParameters =
+      cv::Matx<double, 5, 1>(m_fK1, m_fK2, 0.0f, 0.0f, m_fK3);
 
    CBlockSensor* m_pcBlockSensor =
-      new CBlockSensor;
+      new CBlockSensor(cCameraMatrix, cDistortionParameters);
    CBlockTracker* m_pcBlockTracker =
-      new CBlockTracker(10u, 0.05f);
+      new CBlockTracker(3u, 0.05f);
+   CStructureAnalyser* m_pcStructureAnalyser =
+      new CStructureAnalyser;
+
+   SBlock::TList tDetectedBlocksList;
+   STarget::TList tTrackedTargetList;
+   SStructure::TList tStructureList;
       
    cv::namedWindow("Output");
    cv::moveWindow("Output", 1975, 50);
  
-   CFrameAnnotator cFrameAnnotator(m_pcBlockSensor->GetCameraMatrix(), m_pcBlockSensor->GetDistortionParameters());
+   CFrameAnnotator cFrameAnnotator(cCameraMatrix, cDistortionParameters);
 
    cv::VideoCapture cWebcam(0);
    cv::Mat cTmpImage;
@@ -126,13 +146,8 @@ int main(int n_arg_count, char* ppch_args[]) {
       }
 
       for(SLoadedImage& s_loaded_image : vecImages) {
-         /*
-         if(unLoadedImagesCount != 0) {
-            std::cerr << "processing: " << s_loaded_image.FilePath << std::endl;
-         }
-         */
          /* clear list of blocks from previous detection */                 
-         lstDetectedBlocks.clear();
+         tDetectedBlocksList.clear();
 
          /* convert image to apriltags format */
          image_u8_t* ptImageY = image_u8_create(s_loaded_image.ImageData.cols, s_loaded_image.ImageData.rows);
@@ -142,99 +157,36 @@ int main(int n_arg_count, char* ppch_args[]) {
             ptImageY->width);
          }         
          /* Detect blocks */
-         m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, lstDetectedBlocks);
+         m_pcBlockSensor->DetectBlocks(ptImageY, ptImageY, ptImageY, tDetectedBlocksList);
          /* Deallocate the apriltags image */
          image_u8_destroy(ptImageY);
 
          /* Associate the known targets with the newly detected blocks */
-         m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, lstDetectedBlocks, lstTrackedTargets);
-         
-         double fTimestamp = std::chrono::duration<double, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count();
-         double m_fConnectivityThreshold = 0.055f * 1.25f; // 1.25 block distances
-         /* define the target connectivity map */
-         using TTargetIterator = std::list<STarget>::iterator;
-         std::unordered_multimap<TTargetIterator, TTargetIterator> mapTargetConnectivity;
-         /* build the target connectivity map */
-         for(auto it_from_target = std::begin(lstTrackedTargets);
-             it_from_target != std::end(lstTrackedTargets);
-             it_from_target++) {
-            for(auto it_to_target = std::begin(lstTrackedTargets);
-                it_to_target != std::end(lstTrackedTargets);
-                it_to_target++) {
-               /* don't add transforms from a target to itself */               
-               if(it_from_target != it_to_target) {
-                  const SBlock& sFromObservation = it_from_target->Observations.front();
-                  const SBlock& sToObservation = it_to_target->Observations.front();
-                  if(argos::Distance(sFromObservation.Translation, sToObservation.Translation) < m_fConnectivityThreshold) {
-                     /* populate the connectivity map */
-                     mapTargetConnectivity.emplace(it_from_target, it_to_target);
-                  }
-               }
+         m_pcBlockTracker->AssociateAndTrackTargets(s_loaded_image.Timestamp, tDetectedBlocksList, tTrackedTargetList);
+
+         /* Do structure detection */
+         m_pcStructureAnalyser->DetectStructures(tTrackedTargetList, tStructureList);
+
+         for(const SStructure& s_structure : tStructureList) {
+            cv::Scalar cColor(0.0f,0.0f,0.0f);
+            switch(s_structure.Members.size()) {
+            case 1:
+               cColor = cv::Scalar(0,0,255);
+               break;
+            case 2:
+               cColor = cv::Scalar(0,255,0);
+               break;
+            case 3:
+               cColor = cv::Scalar(255,0,0);
+               break;
+            default:
+               cColor = cv::Scalar(0,255,255);
+               break;
             }
-         }
-         /* define the root target as the target with the highest connectivity */
-         auto itRootTarget = std::end(lstTrackedTargets);
-         for(auto it_target = std::begin(lstTrackedTargets);
-             it_target != std::end(lstTrackedTargets);
-             it_target++) {
-            if(mapTargetConnectivity.count(it_target) >= mapTargetConnectivity.count(itRootTarget)) {
-               itRootTarget = it_target;
-            }
+            cFrameAnnotator.Annotate(s_structure, cColor);
          }
 
-         if(itRootTarget != std::end(lstTrackedTargets)) {
-            cFrameAnnotator.Annotate(*itRootTarget, cv::Scalar(0,255,255), "[R]");
-
-            const SBlock& sRootObservation = (itRootTarget->PseudoObservations.size() != 0) ?
-                itRootTarget->PseudoObservations.front() : itRootTarget->Observations.front();
-         
-            /* display the connectivity */
-            for(auto it_target = std::begin(lstTrackedTargets);
-                it_target != std::end(lstTrackedTargets);
-                it_target++) {
-         
-               if(it_target == itRootTarget) {
-                  continue;
-               }
-
-               const SBlock& sObservation = (it_target->PseudoObservations.size() != 0) ?
-                  it_target->PseudoObservations.front() : it_target->Observations.front();
-
-               /* calculate the relative transform */
-               argos::CVector3 cTargetRelativeTranslation = sObservation.Translation;
-               cTargetRelativeTranslation -= sRootObservation.Translation;
-               cTargetRelativeTranslation.Rotate(sRootObservation.Rotation.Inverse());
-
-               double fBlockWidth = 0.055f;
-
-               std::ostringstream cCoords;
-
-               cCoords << std::round(cTargetRelativeTranslation.GetX() / fBlockWidth) << ", ";
-               cCoords << std::round(cTargetRelativeTranslation.GetY() / fBlockWidth) << ", ";
-               cCoords << std::round(cTargetRelativeTranslation.GetZ() / fBlockWidth);
-
-               //cCoords.str(std::to_string(it_target->Id));
-               //std::cout << "Target #" << itRootTarget->Id << " => Target #" << it_target->Id << ": [" << cCoords.str() << "]" << std::endl;
-
-               cv::Scalar cColor;
-               switch(mapTargetConnectivity.count(it_target)) {
-                  case 0:
-                     cColor = cv::Scalar(255,0,0);
-                     break;
-                  case 1:
-                     cColor = cv::Scalar(0,255,0);
-                     break;
-                  default:
-                     cColor = cv::Scalar(0,0,255);
-                     break;
-               }
-               std::ostringstream cText;
-               cText << '[' << cCoords.str() << ']';
-               cFrameAnnotator.Annotate(*it_target, cColor, cText.str());
-            }
-         }
-
-         /* Create a color version of the image for annotation */
+         /* Create a color version of the image for the annotation */
          cv::Mat cAnnotatedImage;
          cv::cvtColor(s_loaded_image.ImageData, cAnnotatedImage, CV_GRAY2BGR);
          cFrameAnnotator.WriteToFrame(cAnnotatedImage);
@@ -250,13 +202,13 @@ int main(int n_arg_count, char* ppch_args[]) {
                    << "baddetect"
                    << std::setfill('0')
                    << std::setw(7)
-                   << static_cast<int>(fTimestamp)
+                   << std::chrono::duration<int, std::milli>(s_loaded_image.Timestamp - tReferenceTime).count()
                    << ".png";
          cv::imwrite(cFilePath.str().c_str(), s_loaded_image.ImageData);
 */
 
          /* delay */
-         if(cv::waitKey(10) == 'q') {
+         if(cv::waitKey(200) == 'q') {
             break;
          }
       }

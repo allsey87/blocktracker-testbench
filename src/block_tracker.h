@@ -12,15 +12,14 @@ class CBlockTracker {
 public:
    CBlockTracker(unsigned int un_tracking_depth,
                  double f_distance_threshold) :
-
       m_unTrackingDepth(un_tracking_depth),
       m_fDistanceThreshold(f_distance_threshold) {}
 
    void AssociateAndTrackTargets(std::chrono::time_point<std::chrono::steady_clock> t_timestamp,
-                                 std::list<SBlock>& lst_unassociated_blocks,
-                                 std::list<STarget>& lst_targets);
+                                 SBlock::TList& t_unassociated_block_list,
+                                 STarget::TList& t_target_list);
 private:
-   void AssignIdentifiers(std::list<STarget>& lst_targets);
+   void AssignIdentifiers(STarget::TList& t_target_list);
 
    unsigned int m_unTrackingDepth;
    double m_fDistanceThreshold;

@@ -3,7 +3,6 @@
 
 #include <cstring>
 
-#include <argos3/core/utility/math/matrix/transformationmatrix3.h>
 #include <argos3/core/utility/math/matrix/rotationmatrix3.h>
 #include <argos3/core/utility/math/quaternion.h>
 #include <argos3/core/utility/math/angles.h>
@@ -12,7 +11,6 @@
 #include <apriltag/tag36h11.h>
 #include <apriltag/image_u8.h>
 #include <apriltag/zarray.h>
-#include <apriltag/homography.h>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -50,7 +48,10 @@ std::ostream& print_matrix(std::ostream& c_stream, const cv::Mat& c_cv_matrix) {
 /****************************************/
 /****************************************/
 
-CBlockSensor::CBlockSensor() {
+CBlockSensor::CBlockSensor(const cv::Matx<double, 3, 3>& c_camera_matrix,
+                           const cv::Matx<double, 5, 1>& c_distortion_parameters) :
+   m_cCameraMatrix(c_camera_matrix),
+   m_cDistortionParameters(c_distortion_parameters) {
    /* create the tag family */
    m_psTagFamily = tag36h11_create();
    m_psTagFamily->black_border = 1;
@@ -87,10 +88,10 @@ CBlockSensor::~CBlockSensor() {
 void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
                                 image_u8_t* pt_image_u,
                                 image_u8_t* pt_image_v,
-                                std::list<SBlock>& lst_blocks) {
+                                SBlock::TList& t_block_list) {
 
    /* Create a list for the detections */
-   std::list<SBlock> lst_detections;
+   SBlock::TList t_detections_list;
 
    zarray_t* psDetections = apriltag_detector_detect(m_psTagDetector, pt_image_y);
    
@@ -155,14 +156,14 @@ void CBlockSensor::DetectBlocks(image_u8_t* pt_image_y,
       sBlock.Rotation.FromEulerAngles(cBlockEulerAngles[0], cBlockEulerAngles[1], cBlockEulerAngles[2]);
       sBlock.Translation.Set(sBlock.TranslationVector(0), sBlock.TranslationVector(1), sBlock.TranslationVector(2));
       /* store the block into our block list */
-      lst_detections.push_back(sBlock);
+      t_detections_list.push_back(sBlock);
    }
    
    /* clean up */
    apriltag_detections_destroy(psDetections);
    
    /* cluster the blocks */
-   ClusterDetections(lst_detections, lst_blocks);
+   ClusterDetections(t_detections_list, t_block_list);
 }
 
 /****************************************/
@@ -250,18 +251,18 @@ void CBlockSensor::DetectLeds(STag& s_tag, image_u8_t* pt_y_frame, image_u8_t* p
 /****************************************/
 /****************************************/
 
-void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
-                                     std::list<SBlock>& lst_blocks) {
+void CBlockSensor::ClusterDetections(SBlock::TList& t_detections_list,
+                                     SBlock::TList& t_block_list) {
    
    /* some typedefs to avoid going insane */                                  
-   typedef std::list<SBlock> TCluster;
-   typedef std::list<TCluster> TClusterList;
+   using TCluster = SBlock::TList;
+   using TClusterList = std::list<TCluster>;
    /* a working list of clusters */
    TClusterList lstClusters;
    /* loop until we have allocated all of our detections into clusters */
-   while(!lst_detections.empty()) {
+   while(!t_detections_list.empty()) {
       /* take a reference to the first block in the detections list */
-      std::list<SBlock>::iterator itDetectedBlock = std::begin(lst_detections);
+      SBlock::TList::iterator itDetectedBlock = std::begin(t_detections_list);
       /* keep a list of interators into the matching clusters */
       std::list<TClusterList::iterator> lstBlockToClusterAssignments;
       /* for each cluster */
@@ -292,7 +293,7 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
          TCluster& tCluster = lstClusters.back();
          /* move our detected block into the cluster */
          tCluster.splice(std::begin(tCluster),
-                         lst_detections,
+                         t_detections_list,
                          itDetectedBlock);
       }
       else {        
@@ -300,7 +301,7 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
          TClusterList::iterator itCluster = lstBlockToClusterAssignments.front();
          /* add the detected block into the first matching cluster */
          itCluster->splice(std::begin(*itCluster),
-                           lst_detections,
+                           t_detections_list,
                            itDetectedBlock);
          /* if there was more than one matching cluster, merge them */
          if(lstBlockToClusterAssignments.size() > 1) {
@@ -352,7 +353,7 @@ void CBlockSensor::ClusterDetections(std::list<SBlock>& lst_detections,
       
       /* Move itTopTagBlock into our list of blocks */
       /* TODO: move the other tags into the block structure */
-      lst_blocks.splice(std::begin(lst_blocks), t_cluster, itTopTagBlock);
+      t_block_list.splice(std::begin(t_block_list), t_cluster, itTopTagBlock);
    }
    
 }
